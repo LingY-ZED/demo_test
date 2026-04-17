@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database
+*.db
+
+# Data files
+data/uploads/
+*.xlsx
+*.xls
+*.csv
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Distribution / build
+dist/
+build/
+*.egg-info/
+
+# Project docs (for distribution)
+docs/
+todo.md
+plan.md
+info.md
+forend.md

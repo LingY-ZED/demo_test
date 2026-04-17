@@ -1,0 +1,315 @@
+"""
+证据解析服务
+分析单条证据，提取关键信息
+"""
+from typing import Dict, List, Any, Optional, Tuple
+import re
+
+from services.score_service import ScoreService
+from services.role_detector import RoleDetector
+from utils.keywords import keyword_library
+
+
+class EvidenceAnalyzer:
+    """证据解析服务"""
+
+    # 手机号脱敏正则
+    PHONE_PATTERN = re.compile(r'(\d{3})\d{4}(\d{4})')
+    # 身份证号脱敏正则
+    ID_PATTERN = re.compile(r'(\d{6})\d{8}(\d{4})')
+    # 银行卡号脱敏正则
+    BANK_PATTERN = re.compile(r'(\d{4})\d+(\d{4})')
+
+    @classmethod
+    def analyze_evidence(
+        cls,
+        evidence_text: str,
+        evidence_type: str = "communication"
+    ) -> Dict[str, Any]:
+        """
+        分析单条证据
+
+        Args:
+            evidence_text: 证据原文
+            evidence_type: 证据类型（communication/transaction/logistics）
+
+        Returns:
+            分析结果
+        """
+        result = {
+            "original_text": evidence_text,
+            "masked_text": cls.mask_sensitive_info(evidence_text),
+            "price_anomaly": None,
+            "subjective_knowledge": None,
+            "key_actors": [],
+        }
+
+        # 价格异常判定
+        price_result = cls.analyze_price_anomaly(evidence_text)
+        if price_result["has_anomaly"]:
+            result["price_anomaly"] = price_result
+
+        # 主观明知分析
+        score_result = ScoreService.analyze_text(evidence_text)
+        if score_result["score"] > 0:
+            result["subjective_knowledge"] = {
+                "score": score_result["score"],
+                "level": score_result["level"],
+                "hit_keywords": score_result["hit_words"],
+                "categories": score_result["category_counts"],
+                "crime_type": ScoreService.get_crime_type(score_result["matches"]),
+            }
+
+        # 关键主体提取
+        result["key_actors"] = cls.extract_key_actors(evidence_text, evidence_type)
+
+        return result
+
+    @classmethod
+    def analyze_price_anomaly(
+        cls,
+        text: str,
+        reference_price: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        分析价格异常
+
+        Args:
+            text: 文本内容
+            reference_price: 参考价（如果为None，使用行业默认折扣）
+
+        Returns:
+            价格异常分析结果
+        """
+        # 提取价格
+        prices = cls.extract_prices(text)
+
+        if not prices:
+            return {"has_anomaly": False}
+
+        actual_price = prices[0]  # 取第一个提取到的价格
+
+        # 如果没有提供参考价，使用正品价格估算（假设正品价格是当前价格的2-3倍）
+        if reference_price is None:
+            reference_price = actual_price * 2.5
+
+        ratio = actual_price / reference_price if reference_price > 0 else 1
+
+        # 价格低于正品50%以上为异常
+        is_anomaly = ratio < 0.5
+
+        return {
+            "has_anomaly": is_anomaly,
+            "quoted_price": actual_price,
+            "reference_price": reference_price,
+            "ratio": ratio,
+            "anomaly_level": "严重" if ratio < 0.3 else ("中等" if ratio < 0.5 else "轻微"),
+        }
+
+    @classmethod
+    def extract_prices(cls, text: str) -> List[float]:
+        """
+        从文本中提取价格
+
+        Args:
+            text: 文本内容
+
+        Returns:
+            价格列表
+        """
+        # 匹配各种价格格式
+        patterns = [
+            r'(\d+(?:\.\d{1,2})?)\s*元',
+            r'¥\s*(\d+(?:\.\d{1,2})?)',
+            r'价格[是为：:]\s*(\d+(?:\.\d{1,2})?)',
+            r'(\d+(?:\.\d{1,2})?)\s*万',
+            r'(\d+(?:\.\d{1,2})?)\s*千',
+        ]
+
+        prices = []
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            for match in matches:
+                price = float(match)
+                # 处理"万"和"千"
+                if '万' in text[text.find(match)-1:text.find(match)+2]:
+                    price *= 10000
+                elif '千' in text[text.find(match)-1:text.find(match)+2]:
+                    price *= 1000
+                prices.append(price)
+
+        return prices
+
+    @classmethod
+    def extract_subjective_knowledge_evidence(
+        cls,
+        text: str
+    ) -> Dict[str, Any]:
+        """
+        提取主观明知证据
+
+        Args:
+            text: 证据原文
+
+        Returns:
+            主观明知证据
+        """
+        matches = keyword_library.search(text)
+        score_result = ScoreService.analyze_text(text)
+
+        # 按类别分组命中关键词
+        category_hits = {}
+        for m in matches:
+            cat = m["category"]
+            if cat not in category_hits:
+                category_hits[cat] = []
+            category_hits[cat].append({
+                "word": m["word"],
+                "weight": m["weight"],
+            })
+
+        return {
+            "original_text": text,
+            "masked_text": cls.mask_sensitive_info(text),
+            "hit_count": len(matches),
+            "score": score_result["score"],
+            "level": score_result["level"],
+            "category_hits": category_hits,
+            "crime_type": ScoreService.get_crime_type(matches),
+        }
+
+    @classmethod
+    def extract_key_actors(
+        cls,
+        text: str,
+        evidence_type: str = "communication"
+    ) -> List[Dict[str, Any]]:
+        """
+        提取关键主体
+
+        Args:
+            text: 文本内容
+            evidence_type: 证据类型
+
+        Returns:
+            关键主体列表
+        """
+        actors = []
+
+        # 提取人名（简单实现，实际可用NER）
+        # 这里假设文本中包含"甲方"等称呼
+        name_patterns = [
+            r'([\u4e00-\u9fa5]{2,4})说',
+            r'([\u4e00-\u9fa5]{2,4})表示',
+            r'跟([\u4e00-\u9fa5]{2,4})',
+            r'和([\u4e00-\u9fa5]{2,4})',
+            r'([\u4e00-\u9fa5]{2,4})要货',
+            r'([\u4e00-\u9fa5]{2,4})拿货',
+        ]
+
+        names = set()
+        for pattern in name_patterns:
+            matches = re.findall(pattern, text)
+            names.update(matches)
+
+        # 提取联系方式（脱敏）
+        phones = re.findall(r'1[3-9]\d{9}', text)
+        phones = [cls.mask_phone(p) for p in phones]
+
+        for name in names:
+            actors.append({
+                "name": name,
+                "role": None,  # 角色需要通过RoleDetector判断
+                "contact": phones[0] if phones else None,
+                "mentioned_in": evidence_type,
+            })
+
+        return actors
+
+    @classmethod
+    def mask_phone(cls, phone: str) -> str:
+        """
+        手机号脱敏
+
+        Args:
+            phone: 手机号
+
+        Returns:
+            脱敏后的手机号
+        """
+        return cls.PHONE_PATTERN.sub(r'\1****\2', phone)
+
+    @classmethod
+    def mask_id_number(cls, id_number: str) -> str:
+        """
+        身份证号脱敏
+
+        Args:
+            id_number: 身份证号
+
+        Returns:
+            脱敏后的身份证号
+        """
+        return cls.ID_PATTERN.sub(r'\1********\2', id_number)
+
+    @classmethod
+    def mask_bank_card(cls, card_number: str) -> str:
+        """
+        银行卡号脱敏
+
+        Args:
+            card_number: 银行卡号
+
+        Returns:
+            脱敏后的银行卡号
+        """
+        return cls.BANK_PATTERN.sub(r'\1****\2', card_number)
+
+    @classmethod
+    def mask_sensitive_info(cls, text: str) -> str:
+        """
+        脱敏所有敏感信息
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            脱敏后的文本
+        """
+        # 脱敏手机号
+        text = cls.PHONE_PATTERN.sub(r'\1****\2', text)
+        # 脱敏身份证号
+        text = cls.ID_PATTERN.sub(r'\1********\2', text)
+        # 脱敏银行卡号
+        text = cls.BANK_PATTERN.sub(r'\1****\2', text)
+        return text
+
+    @classmethod
+    def highlight_keywords(
+        cls,
+        text: str,
+        keywords: Optional[List[str]] = None
+    ) -> str:
+        """
+        高亮文本中的关键词
+
+        Args:
+            text: 原始文本
+            keywords: 关键词列表（如果为None，自动从文本中提取）
+
+        Returns:
+            高亮后的文本（HTML格式）
+        """
+        if keywords is None:
+            matches = keyword_library.search(text)
+            keywords = [m["word"] for m in matches]
+
+        result = text
+        for kw in keywords:
+            # 使用HTML标签高亮
+            result = result.replace(
+                kw,
+                f'<mark class="keyword">{kw}</mark>'
+            )
+
+        return result
