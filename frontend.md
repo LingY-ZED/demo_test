@@ -336,6 +336,47 @@ GET /api/relations/recidivism/{person_name}
 GET /api/relations/upstream/{case_id}
 GET /api/relations/downstream/{case_id}
 GET /api/relations/core-suspects/{case_id}
+
+返回示例 (以upstream为例):
+[
+  {
+    "name": "某供货商",
+    "total_out_amount": 50000.0,
+    "counterparties": ["核心嫌疑人A"],
+    "evidence": {
+      "transactions": [
+        {"type": "付款", "counterparty": "核心嫌疑人A", "amount": 20000.0, "time": "2024-01-15 10:30:00"}
+      ],
+      "logistics": [
+        {"type": "发货", "counterparty": "核心嫌疑人A", "description": "制动片一批", "time": "2024-01-16 14:00:00"}
+      ]
+    }
+  }
+]
+
+返回示例 (core-suspects):
+[
+  {
+    "name": "核心嫌疑人A",
+    "role": "销售者",
+    "crime_type": "涉嫌销售假冒注册商标的商品罪",
+    "behavior_role": "销售者",
+    "keyword_roles": ["销售者"],
+    "evidence": {
+      "transactions": [...],
+      "logistics": [...],
+      "communications": [
+        {
+          "type": "发起",
+          "counterparty": "下游买家B",
+          "content": "这批货是高仿的，质量没问题",
+          "hit_keywords": ["高仿"],
+          "role_hint": "销售者"
+        }
+      ]
+    }
+  }
+]
 ```
 
 ---

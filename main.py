@@ -1,8 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 from config.settings import settings
 from models.database import init_db
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("api_logger")
 
 # 初始化数据库
 init_db()
@@ -11,6 +16,30 @@ app = FastAPI(
     title=settings.app_name,
     debug=settings.debug
 )
+
+from starlette.concurrency import iterate_in_threadpool
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"➡️ Request: {request.method} {request.url}")
+    
+    response = await call_next(request)
+    
+    # 捕获响应体以便记录日志
+    response_body = [chunk async for chunk in response.body_iterator]
+    response.body_iterator = iterate_in_threadpool(iter(response_body))
+    
+    try:
+        if response_body:
+            body_content = response_body[0].decode()
+            display_content = body_content[:1000] + "..." if len(body_content) > 1000 else body_content
+            logger.info(f"📄 Response Data: {display_content}")
+    except Exception:
+        logger.info("📄 Response Data: [无法解析的内容]")
+
+    logger.info(f"⬅️ Response Status: {response.status_code}")
+    return response
+
 
 # CORS配置
 app.add_middleware(

@@ -9,7 +9,7 @@ from services.suspicion_detector import SuspicionDetector
 router = APIRouter(prefix="/api", tags=["可疑线索"])
 
 
-@router.get("/cases/{case_id}/suspicious", response_model=List[dict])
+@router.get("/cases/{case_id}/suspicious")
 async def get_case_suspicious_clues(case_id: int):
     """
     获取案件可疑线索列表

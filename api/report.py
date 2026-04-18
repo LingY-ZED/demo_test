@@ -142,9 +142,9 @@ def _generate_report_content(case_detail, chain_analysis, evidence_inventory) ->
         "-" * 60,
         "三、上下游关系",
         "-" * 60,
-        f"  上游供货商: {len(chain_analysis.get('upstream_count', []))}个",
-        f"  下游买家: {len(chain_analysis.get('downstream_count', []))}个",
-        f"  核心嫌疑人: {len(chain_analysis.get('core_count', []))}个",
+        f"  上游供货商: {chain_analysis.get('upstream_count', 0)}个",
+        f"  下游买家: {chain_analysis.get('downstream_count', 0)}个",
+        f"  核心嫌疑人: {chain_analysis.get('core_count', 0)}个",
     ])
 
     # 添加核心嫌疑人信息
