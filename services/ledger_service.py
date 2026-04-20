@@ -25,15 +25,6 @@ class LedgerService:
     ) -> List[Dict[str, Any]]:
         """
         人员台账查询
-
-        Args:
-            name: 姓名（模糊匹配）
-            role: 角色筛选
-            limit: 返回数量限制
-            offset: 偏移量
-
-        Returns:
-            人员台账列表
         """
         query = Person.select()
 
@@ -46,10 +37,28 @@ class LedgerService:
 
         ledger = []
         for p in query:
+            # 尝试获取关联的案件编号 (全量检查资金、通讯、物流)
+            case_no = "未知案件"
+            # 1. 检查资金
+            trans = Transaction.select().join(Case).where((Transaction.payer == p.name) | (Transaction.payee == p.name)).first()
+            if trans:
+                case_no = trans.case.case_no
+            else:
+                # 2. 检查通讯
+                comm = Communication.select().join(Case).where((Communication.initiator == p.name) | (Communication.receiver == p.name)).first()
+                if comm:
+                    case_no = comm.case.case_no
+                else:
+                    # 3. 检查物流
+                    logi = Logistics.select().join(Case).where((Logistics.sender == p.name) | (Logistics.receiver == p.name)).first()
+                    if logi:
+                        case_no = logi.case.case_no
+
             ledger.append({
                 "id": p.id,
                 "name": p.name,
                 "role": p.role,
+                "case_no": case_no,
                 "is_authorized": p.is_authorized,
                 "subjective_knowledge_score": p.subjective_knowledge_score,
                 "illegal_business_amount": float(p.illegal_business_amount) if p.illegal_business_amount else 0,
@@ -65,12 +74,6 @@ class LedgerService:
     ) -> Dict[str, Any]:
         """
         人员详情
-
-        Args:
-            person_name: 人员姓名
-
-        Returns:
-            人员详细信息
         """
         # 查找人员记录
         try:
@@ -158,18 +161,6 @@ class LedgerService:
     ) -> List[Dict[str, Any]]:
         """
         交易台账查询
-
-        Args:
-            case_no: 案件编号筛选
-            payer: 打款方筛选
-            payee: 收款方筛选
-            start_date: 开始日期
-            end_date: 结束日期
-            limit: 返回数量限制
-            offset: 偏移量
-
-        Returns:
-            交易台账列表
         """
         query = Transaction.select().join(Case)
 
@@ -205,12 +196,6 @@ class LedgerService:
     ) -> List[Dict[str, Any]]:
         """
         高频交易人员统计
-
-        Args:
-            limit: 返回数量
-
-        Returns:
-            高频交易人员列表
         """
         # 统计每个人员的交易次数
         person_transaction_count = defaultdict(int)
@@ -248,12 +233,6 @@ class LedgerService:
     ) -> Dict[str, Any]:
         """
         证据清单汇总
-
-        Args:
-            case_id: 案件ID
-
-        Returns:
-            证据清单
         """
         case = Case.get_by_id(case_id)
 
@@ -267,16 +246,21 @@ class LedgerService:
 
             if matches:
                 score_result = ScoreService.analyze_text(content)
+                score = score_result["score"]
+                severity = "刑事犯罪" if score >= 8 else "民事侵权" if score >= 5 else "行政违法"
+                
                 communication_evidence.append({
                     "type": "通讯记录",
                     "id": c.id,
+                    "case_no": case.case_no,
                     "time": c.communication_time.isoformat() if c.communication_time else None,
                     "initiator": c.initiator,
                     "receiver": c.receiver,
                     "content": content,
                     "hit_keywords": [m["word"] for m in matches],
-                    "score": score_result["score"],
+                    "score": score,
                     "crime_type": ScoreService.get_crime_type(matches),
+                    "severity_level": severity,
                 })
 
         # 收集价格异常证据
@@ -291,12 +275,16 @@ class LedgerService:
                 price_anomaly_evidence.append({
                     "type": "交易备注",
                     "id": t.id,
+                    "case_no": case.case_no,
                     "time": t.transaction_time.isoformat() if t.transaction_time else None,
                     "payer": t.payer,
                     "payee": t.payee,
                     "amount": float(t.amount) if t.amount else 0,
                     "remark": remark,
                     "hit_keywords": [m["word"] for m in matches],
+                    "score": 3,  # 交易备注命关键词通常定义为低度可疑
+                    "severity_level": "行政违法",
+                    "crime_type": "价格异常",
                 })
 
         # 收集物流异常
@@ -311,11 +299,15 @@ class LedgerService:
                 logistics_evidence.append({
                     "type": "物流物品描述",
                     "id": l.id,
+                    "case_no": case.case_no,
                     "time": l.shipping_time.isoformat() if l.shipping_time else None,
                     "sender": l.sender,
                     "receiver": l.receiver,
                     "description": description,
                     "hit_keywords": [m["word"] for m in matches],
+                    "score": 3,
+                    "severity_level": "行政违法",
+                    "crime_type": "物流异常",
                 })
 
         # 汇总

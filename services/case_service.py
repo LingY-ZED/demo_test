@@ -330,6 +330,7 @@ class CaseService:
 
     # ==================== 私有转换方法 ====================
 
+
     @classmethod
     def _case_to_dict(cls, case: Case) -> Dict[str, Any]:
         """案件对象转字典"""
