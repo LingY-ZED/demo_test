@@ -1,10 +1,13 @@
 """
 数据导入API路由
 """
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional
 import pandas as pd
 from datetime import datetime
+import tempfile
+import os
 
 from services.upload_service import UploadService
 from services.clean_service import CleanService
@@ -17,7 +20,7 @@ router = APIRouter(prefix="/api/upload", tags=["数据导入"])
 async def upload_transactions(
     file: UploadFile = File(...),
     case_id: Optional[int] = Form(None),
-    case_no: Optional[str] = Form(None)
+    case_no: Optional[str] = Form(None),
 ):
     """
     上传资金流水Excel/CSV
@@ -30,13 +33,14 @@ async def upload_transactions(
     Returns:
         导入结果
     """
-    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+    if not file.filename.endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="仅支持Excel或CSV文件")
 
     # 获取案件
     case = None
     if case_id:
         from models.database import Case
+
         case = Case.get_or_none(Case.id == case_id)
     elif case_no:
         case = Case.get_or_none(Case.case_no == case_no)
@@ -45,21 +49,23 @@ async def upload_transactions(
         raise HTTPException(status_code=404, detail="案件不存在")
 
     try:
-        # 读取文件
+        # 保存上传文件到临时文件后交给 UploadService 解析
         contents = await file.read()
-        if file.filename.endswith('.csv'):
-            df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
-        else:
-            df = pd.read_excel(io.BytesIO(contents))
+        suffix = os.path.splitext(file.filename)[1] or ".csv"
+        temp_path = None
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(contents)
+            temp_path = temp_file.name
 
         # 解析数据
-        records = UploadService.parse_transactions(df)
+        records = UploadService.parse_transactions(temp_path, case.id)
 
         # 清洗数据
         cleaned_records = CleanService.clean_transactions(records)
 
         # 保存到数据库
         from models.database import Transaction
+
         saved_count = 0
         for record in cleaned_records:
             Transaction.create(
@@ -83,13 +89,16 @@ async def upload_transactions(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+    finally:
+        if "temp_path" in locals() and temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 @router.post("/communications")
 async def upload_communications(
     file: UploadFile = File(...),
     case_id: Optional[int] = Form(None),
-    case_no: Optional[str] = Form(None)
+    case_no: Optional[str] = Form(None),
 ):
     """
     上传通讯记录Excel/CSV
@@ -102,7 +111,7 @@ async def upload_communications(
     Returns:
         导入结果
     """
-    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+    if not file.filename.endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="仅支持Excel或CSV文件")
 
     # 获取案件
@@ -116,21 +125,23 @@ async def upload_communications(
         raise HTTPException(status_code=404, detail="案件不存在")
 
     try:
-        # 读取文件
+        # 保存上传文件到临时文件后交给 UploadService 解析
         contents = await file.read()
-        if file.filename.endswith('.csv'):
-            df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
-        else:
-            df = pd.read_excel(io.BytesIO(contents))
+        suffix = os.path.splitext(file.filename)[1] or ".csv"
+        temp_path = None
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(contents)
+            temp_path = temp_file.name
 
         # 解析数据
-        records = UploadService.parse_communications(df)
+        records = UploadService.parse_communications(temp_path, case.id)
 
         # 清洗数据
         cleaned_records = CleanService.clean_communications(records)
 
         # 保存到数据库
         from models.database import Communication
+
         saved_count = 0
         for record in cleaned_records:
             Communication.create(
@@ -152,13 +163,16 @@ async def upload_communications(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+    finally:
+        if "temp_path" in locals() and temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 @router.post("/logistics")
 async def upload_logistics(
     file: UploadFile = File(...),
     case_id: Optional[int] = Form(None),
-    case_no: Optional[str] = Form(None)
+    case_no: Optional[str] = Form(None),
 ):
     """
     上传物流记录Excel/CSV
@@ -171,7 +185,7 @@ async def upload_logistics(
     Returns:
         导入结果
     """
-    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+    if not file.filename.endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="仅支持Excel或CSV文件")
 
     # 获取案件
@@ -185,21 +199,23 @@ async def upload_logistics(
         raise HTTPException(status_code=404, detail="案件不存在")
 
     try:
-        # 读取文件
+        # 保存上传文件到临时文件后交给 UploadService 解析
         contents = await file.read()
-        if file.filename.endswith('.csv'):
-            df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
-        else:
-            df = pd.read_excel(io.BytesIO(contents))
+        suffix = os.path.splitext(file.filename)[1] or ".csv"
+        temp_path = None
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(contents)
+            temp_path = temp_file.name
 
         # 解析数据
-        records = UploadService.parse_logistics(df)
+        records = UploadService.parse_logistics(temp_path, case.id)
 
         # 清洗数据
         cleaned_records = CleanService.clean_logistics(records)
 
         # 保存到数据库
         from models.database import Logistics
+
         saved_count = 0
         for record in cleaned_records:
             Logistics.create(
@@ -225,6 +241,9 @@ async def upload_logistics(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+    finally:
+        if "temp_path" in locals() and temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 # 需要导入io模块
