@@ -73,8 +73,7 @@ async def basic_auth_middleware(request: Request, call_next):
 
     return JSONResponse(
         status_code=401,
-        content={"detail": "未授权访问，请提供有效账号密码"},
-        headers={"WWW-Authenticate": "Basic"},
+        content={"detail": "未授权访问，请提供有效账号密码"}
     )
 
 
