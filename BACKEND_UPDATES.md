@@ -2,6 +2,17 @@
 
 ## 日期: 2026-04-22
 
+### 0. 全站单账号密码保护（方案一） (`main.py`, `config/settings.py`)
+- **功能**: 为后端接口增加统一密码保护，防止未授权直接访问 API。
+- **修改**:
+  - 新增 HTTP Basic 鉴权中间件（全局生效）。
+  - 新增配置项：`auth_enabled`、`auth_username`、`auth_password`。
+  - 默认放行白名单路径：`/`、`/health`、`/docs`、`/openapi.json`、`/redoc`。
+  - 非白名单请求在未授权时返回 `401`，并带 `WWW-Authenticate: Basic` 头。
+- **前端对接影响**:
+  - 除白名单接口外，前端请求需统一携带 `Authorization: Basic <base64(username:password)>`。
+  - 收到 `401` 时应提示重新输入账号密码。
+
 ### 1. 数据导入格式校验增强 (`services/upload_service.py`, `api/upload.py`, `streamlit_app.py`)
 - **功能**: 当上传表格格式错误（缺少必填列、仅有表头无有效数据）时，向用户返回明确可读提示，避免笼统“导入失败”。
 - **修改**:

@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     app_name: str = "火眼智擎—汽配领域知产保护分析助手"
     debug: bool = True
 
+    # 单账号密码鉴权（方案一）
+    auth_enabled: bool = True
+    auth_username: str = "admin"
+    auth_password: str = "change-this-password"
+
     # 数据库配置
     database_path: Path = BASE_DIR / "data" / "intellectual_property.db"
 
