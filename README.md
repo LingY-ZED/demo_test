@@ -29,6 +29,13 @@
 
 ## 快速启动
 
+在新设备或不同系统上部署时，建议先按下面步骤准备环境：
+
+1. 复制 [.env.example](.env.example) 为 `.env`
+2. 按需修改账号密码和数据库路径
+3. 创建并激活 Python 虚拟环境
+4. 安装依赖后启动 `python main.py`
+
 ```bash
 # 安装依赖
 pip install fastapi uvicorn peewee pandas openpyxl python-docx
@@ -38,6 +45,32 @@ python main.py
 
 # 访问 API 文档
 http://localhost:8000/docs
+```
+
+## Docker 一键部署（仅后端）
+
+说明：`streamlit_app.py` 仅用于本地测试，不参与生产部署。Docker 仅启动 FastAPI 后端服务。
+
+1. 准备环境变量：复制 [.env.example](.env.example) 为 `.env` 并修改账号密码
+2. 一键启动后端：
+
+```bash
+docker compose up -d --build
+```
+
+3. 访问地址：
+
+- API 文档：[http://localhost:8000/docs](http://localhost:8000/docs)
+- 健康检查：[http://localhost:8000/health](http://localhost:8000/health)
+
+4. 常用命令：
+
+```bash
+# 查看日志
+docker compose logs -f backend
+
+# 停止并移除容器
+docker compose down
 ```
 
 ## 项目结构

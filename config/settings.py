@@ -21,11 +21,24 @@ class Settings(BaseSettings):
     upload_dir: Path = BASE_DIR / "data" / "uploads"
 
     class Config:
-        env_file = ".env"
+        env_file = BASE_DIR / ".env"
 
 
 settings = Settings()
 
+
+def _resolve_project_path(path: Path) -> Path:
+    resolved_path = Path(path)
+    if resolved_path.is_absolute():
+        return resolved_path
+    return (BASE_DIR / resolved_path).resolve()
+
+
+settings.database_path = _resolve_project_path(settings.database_path)
+settings.data_dir = _resolve_project_path(settings.data_dir)
+settings.upload_dir = _resolve_project_path(settings.upload_dir)
+
 # 确保目录存在
-settings.data_dir.mkdir(exist_ok=True)
-settings.upload_dir.mkdir(exist_ok=True)
+settings.data_dir.mkdir(parents=True, exist_ok=True)
+settings.upload_dir.mkdir(parents=True, exist_ok=True)
+settings.database_path.parent.mkdir(parents=True, exist_ok=True)

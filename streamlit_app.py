@@ -11,6 +11,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from config.settings import settings
 from services.upload_service import UploadService, TableFormatError
 from services.clean_service import CleanService
 from services.extract_service import ExtractService
@@ -135,8 +136,8 @@ elif page == "📁 数据导入":
     case_id = st.number_input("案件ID", min_value=1, value=1)
 
     if st.button("导入并分析", type="primary"):
-        temp_dir = os.path.join(os.path.dirname(__file__), "data", "temp")
-        os.makedirs(temp_dir, exist_ok=True)
+        temp_dir = settings.data_dir / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
         trans_path = None
         comm_path = None
@@ -146,11 +147,11 @@ elif page == "📁 数据导入":
             with st.spinner("导入中..."):
                 # 导入资金流水
                 if trans_file:
-                    trans_path = os.path.join(temp_dir, trans_file.name)
+                    trans_path = temp_dir / trans_file.name
                     with open(trans_path, "wb") as f:
                         f.write(trans_file.getbuffer())
                     st.session_state.transactions = UploadService.parse_transactions(
-                        trans_path, case_id=case_id
+                        str(trans_path), case_id=case_id
                     )
                     st.session_state.transactions = CleanService.clean_transactions(
                         st.session_state.transactions
@@ -158,11 +159,13 @@ elif page == "📁 数据导入":
 
                 # 导入通讯记录
                 if comm_file:
-                    comm_path = os.path.join(temp_dir, comm_file.name)
+                    comm_path = temp_dir / comm_file.name
                     with open(comm_path, "wb") as f:
                         f.write(comm_file.getbuffer())
                     st.session_state.communications = (
-                        UploadService.parse_communications(comm_path, case_id=case_id)
+                        UploadService.parse_communications(
+                            str(comm_path), case_id=case_id
+                        )
                     )
                     st.session_state.communications = CleanService.clean_communications(
                         st.session_state.communications
@@ -170,11 +173,11 @@ elif page == "📁 数据导入":
 
                 # 导入物流记录
                 if log_file:
-                    log_path = os.path.join(temp_dir, log_file.name)
+                    log_path = temp_dir / log_file.name
                     with open(log_path, "wb") as f:
                         f.write(log_file.getbuffer())
                     st.session_state.logistics = UploadService.parse_logistics(
-                        log_path, case_id=case_id
+                        str(log_path), case_id=case_id
                     )
                     st.session_state.logistics = CleanService.clean_logistics(
                         st.session_state.logistics
