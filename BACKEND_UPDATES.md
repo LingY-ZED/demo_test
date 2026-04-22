@@ -1,5 +1,32 @@
 # 后端修改记录 (Backend Modification Records)
 
+## 日期: 2026-04-22
+
+### 1. 数据导入格式校验增强 (`services/upload_service.py`, `api/upload.py`, `streamlit_app.py`)
+- **功能**: 当上传表格格式错误（缺少必填列、仅有表头无有效数据）时，向用户返回明确可读提示，避免笼统“导入失败”。
+- **修改**:
+  - 在 `services/upload_service.py` 新增 `TableFormatError` 异常类型。
+  - 为三类导入（资金流水/通讯记录/物流记录）新增必填列校验：
+    - 资金流水必填列：`交易发生时间`、`打款方`/`打款方 (账号/姓名)`、`收款方`/`收款方 (账号/姓名)`、`交易金额`/`交易金额 (元)`
+    - 通讯记录必填列：`联络时间`、`发起方 (微信号/姓名)`、`接收方 (微信号/姓名)`、`聊天内容`
+    - 物流记录必填列：`发货时间`、`发件人/网点`、`收件人/地址`
+  - 增加“空数据校验”：表格有表头但无可解析有效行时，抛出格式错误提示。
+  - 在 `api/upload.py` 将 `TableFormatError` 统一映射为 `HTTP 400`，`detail` 返回具体错误原因。
+  - 在 `streamlit_app.py` 捕获 `TableFormatError`，前端页面展示：
+    - `st.error("导入失败：...")`
+    - `st.info("请按系统模板字段上传，确保表头列名与模板一致。")`
+- **影响范围**:
+  - 上传接口路径：`/api/upload/transactions`、`/api/upload/communications`、`/api/upload/logistics`
+  - 前端导入页可直接基于错误文本进行用户提示，无需解析复杂异常栈。
+
+### 2. 对前端的兼容性说明
+- **成功场景**: 返回结构不变（`success/message/case_id/case_no/total_records/saved_records`），前端无需改动成功逻辑。
+- **失败场景新增约定**:
+  - 当为模板/列名/数据内容问题时，后端固定返回 `400`，且 `detail` 包含“表格格式错误”。
+  - 前端可按以下规则处理：
+    - `status === 400 && detail.includes("表格格式错误")` -> 显示“请检查模板列名/必填列”类提示。
+    - 其他状态码继续走通用异常处理。
+
 ## 日期: 2026-04-20
 
 ### 1. 证据清单逻辑增强 (`services/ledger_service.py`)

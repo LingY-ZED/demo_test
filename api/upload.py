@@ -9,7 +9,7 @@ from datetime import datetime
 import tempfile
 import os
 
-from services.upload_service import UploadService
+from services.upload_service import UploadService, TableFormatError
 from services.clean_service import CleanService
 from models.database import Case
 
@@ -87,6 +87,8 @@ async def upload_transactions(
             "total_records": len(records),
             "saved_records": saved_count,
         }
+    except TableFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
     finally:
@@ -161,6 +163,8 @@ async def upload_communications(
             "total_records": len(records),
             "saved_records": saved_count,
         }
+    except TableFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
     finally:
@@ -239,6 +243,8 @@ async def upload_logistics(
             "total_records": len(records),
             "saved_records": saved_count,
         }
+    except TableFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
     finally:
