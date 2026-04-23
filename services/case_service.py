@@ -3,7 +3,7 @@
 提供案件的创建、查询、管理功能
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from decimal import Decimal
 from datetime import datetime
 from collections import Counter
@@ -15,7 +15,10 @@ from models.database import (
     Communication,
     Logistics,
     SuspiciousClue,
+    db,
 )
+from services.role_detector import RoleDetector
+from services.score_service import ScoreService
 from utils.keywords_data import BRAND_KEYWORDS
 
 
@@ -201,6 +204,181 @@ class CaseService:
         case.amount = total_amount
         case.save(only=[Case.amount])
         return total_amount
+
+    @classmethod
+    def _collect_case_person_names(cls, case_id: int) -> Set[str]:
+        """收集案件涉及的全部人员姓名（资金/物流/通讯并集）。"""
+        names: Set[str] = set()
+
+        transactions = Transaction.select().where(Transaction.case == case_id)
+        for t in transactions:
+            if t.payer:
+                names.add(t.payer.strip())
+            if t.payee:
+                names.add(t.payee.strip())
+
+        logistics = Logistics.select().where(Logistics.case == case_id)
+        for l in logistics:
+            if l.sender:
+                names.add(l.sender.strip())
+            if l.receiver:
+                names.add(l.receiver.strip())
+
+        communications = Communication.select().where(Communication.case == case_id)
+        for c in communications:
+            if c.initiator:
+                names.add(c.initiator.strip())
+            if c.receiver:
+                names.add(c.receiver.strip())
+
+        return {name for name in names if name}
+
+    @classmethod
+    def _calculate_person_metrics(cls, person_name: str) -> Dict[str, Any]:
+        """计算人员在全库范围内的基础指标。"""
+        incoming_amount = Decimal("0")
+
+        incoming_transactions = Transaction.select().where(
+            Transaction.payee == person_name
+        )
+        for t in incoming_transactions:
+            incoming_amount += t.amount or Decimal("0")
+
+        linked_case_ids = set()
+
+        trans_query = Transaction.select(Transaction.case).where(
+            (Transaction.payer == person_name) | (Transaction.payee == person_name)
+        )
+        for row in trans_query:
+            if row.case_id:
+                linked_case_ids.add(row.case_id)
+
+        logistics_query = Logistics.select(Logistics.case).where(
+            (Logistics.sender == person_name) | (Logistics.receiver == person_name)
+        )
+        for row in logistics_query:
+            if row.case_id:
+                linked_case_ids.add(row.case_id)
+
+        comm_query = Communication.select().where(
+            (Communication.initiator == person_name)
+            | (Communication.receiver == person_name)
+        )
+        communications_data: List[Dict[str, Any]] = []
+        for row in comm_query:
+            if row.case_id:
+                linked_case_ids.add(row.case_id)
+            communications_data.append(
+                {
+                    "communication_time": row.communication_time,
+                    "initiator": row.initiator,
+                    "receiver": row.receiver,
+                    "content": row.content,
+                }
+            )
+
+        transactions_data = [
+            {
+                "transaction_time": t.transaction_time,
+                "payer": t.payer,
+                "payee": t.payee,
+                "amount": t.amount,
+                "remark": t.remark,
+            }
+            for t in Transaction.select().where(
+                (Transaction.payer == person_name) | (Transaction.payee == person_name)
+            )
+        ]
+
+        logistics_data = [
+            {
+                "shipping_time": l.shipping_time,
+                "sender": l.sender,
+                "receiver": l.receiver,
+                "description": l.description,
+            }
+            for l in Logistics.select().where(
+                (Logistics.sender == person_name) | (Logistics.receiver == person_name)
+            )
+        ]
+
+        role_result = RoleDetector.detect_role(
+            transactions_data,
+            logistics_data,
+            communications_data,
+            person_name,
+        )
+
+        comm_text = "\n".join(
+            [str(c.get("content") or "").strip() for c in communications_data]
+        ).strip()
+        subjective_score = (
+            ScoreService.analyze_text(comm_text).get("score", 0) if comm_text else 0
+        )
+
+        return {
+            "role": role_result.get("role", "待定"),
+            "subjective_knowledge_score": subjective_score,
+            "illegal_business_amount": incoming_amount,
+            "linked_cases": len(linked_case_ids),
+        }
+
+    @classmethod
+    def sync_case_persons_to_db(cls, case_id: int) -> Optional[Dict[str, Any]]:
+        """
+        将案件涉及人员同步到 persons 表。
+
+        当前策略：全局人物档按姓名聚合，导入后执行幂等 upsert。
+        """
+        case = cls.get_case_by_id(case_id)
+        if not case:
+            return None
+
+        person_names = sorted(cls._collect_case_person_names(case_id))
+        created_count = 0
+        updated_count = 0
+
+        with db.atomic():
+            for name in person_names:
+                metrics = cls._calculate_person_metrics(name)
+                person, created = Person.get_or_create(
+                    name=name,
+                    defaults={
+                        "role": metrics["role"],
+                        "subjective_knowledge_score": metrics[
+                            "subjective_knowledge_score"
+                        ],
+                        "illegal_business_amount": metrics["illegal_business_amount"],
+                        "linked_cases": metrics["linked_cases"],
+                    },
+                )
+
+                if created:
+                    created_count += 1
+                    continue
+
+                person.role = metrics["role"]
+                person.subjective_knowledge_score = metrics[
+                    "subjective_knowledge_score"
+                ]
+                person.illegal_business_amount = metrics["illegal_business_amount"]
+                person.linked_cases = metrics["linked_cases"]
+                person.save(
+                    only=[
+                        Person.role,
+                        Person.subjective_knowledge_score,
+                        Person.illegal_business_amount,
+                        Person.linked_cases,
+                    ]
+                )
+                updated_count += 1
+
+        return {
+            "case_id": case_id,
+            "case_person_count": len(person_names),
+            "created": created_count,
+            "updated": updated_count,
+        }
 
     @classmethod
     def get_case_by_id(cls, case_id: int) -> Optional[Case]:

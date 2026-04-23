@@ -2,18 +2,18 @@
 上下游关系分析服务
 分析资金流向、物流源头、通讯联络构建关系网络
 """
+
 from typing import Dict, List, Any, Set, Tuple
 from collections import defaultdict
+
+from services.person_classifier import PersonClassifier
 
 
 class RelationAnalyzer:
     """上下游关系分析服务"""
 
     @classmethod
-    def analyze_money_flow(
-        cls,
-        transactions: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def analyze_money_flow(cls, transactions: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         分析资金流向
 
@@ -37,13 +37,15 @@ class RelationAnalyzer:
             amount = float(t.get("amount", 0))
 
             if payer and payee:
-                edges.append({
-                    "from": payer,
-                    "to": payee,
-                    "amount": amount,
-                    "time": t.get("transaction_time"),
-                    "remark": t.get("remark"),
-                })
+                edges.append(
+                    {
+                        "from": payer,
+                        "to": payee,
+                        "amount": amount,
+                        "time": t.get("transaction_time"),
+                        "remark": t.get("remark"),
+                    }
+                )
                 node_out_degree[payer] += amount
                 node_in_degree[payee] += amount
                 node_counterparties[payer].add(payee)
@@ -59,10 +61,14 @@ class RelationAnalyzer:
         core_nodes = sorted(node_scores.items(), key=lambda x: x[1], reverse=True)
 
         # 上游（只有出度，无入度或入度很小）
-        upstream = [n for n in all_nodes if node_in_degree[n] < node_out_degree[n] * 0.1]
+        upstream = [
+            n for n in all_nodes if node_in_degree[n] < node_out_degree[n] * 0.1
+        ]
 
         # 下游（只有入度，无出度或出度很小）
-        downstream = [n for n in all_nodes if node_out_degree[n] < node_in_degree[n] * 0.1]
+        downstream = [
+            n for n in all_nodes if node_out_degree[n] < node_in_degree[n] * 0.1
+        ]
 
         # 核心节点
         core = [n for n in all_nodes if n not in upstream and n not in downstream]
@@ -70,9 +76,9 @@ class RelationAnalyzer:
         return {
             "edges": edges,
             "nodes": list(all_nodes),
-            "upstream": upstream,           # 上游供货商
-            "downstream": downstream,       # 下游买家
-            "core": core,                   # 核心嫌疑人
+            "upstream": upstream,  # 上游供货商
+            "downstream": downstream,  # 下游买家
+            "core": core,  # 核心嫌疑人
             "node_details": {
                 n: {
                     "in_amount": node_in_degree[n],
@@ -85,10 +91,7 @@ class RelationAnalyzer:
         }
 
     @classmethod
-    def trace_shipping_sources(
-        cls,
-        logistics: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def trace_shipping_sources(cls, logistics: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         追溯物流发货源头
 
@@ -110,42 +113,51 @@ class RelationAnalyzer:
             description = l.get("description", "")
 
             if sender_address:
-                address_groups[sender_address].append({
-                    "sender": sender,
+                address_groups[sender_address].append(
+                    {
+                        "sender": sender,
+                        "receiver": receiver,
+                        "description": description,
+                        "tracking_no": l.get("tracking_no"),
+                        "time": l.get("shipping_time"),
+                    }
+                )
+
+            sender_groups[sender].append(
+                {
+                    "sender_address": sender_address,
                     "receiver": receiver,
                     "description": description,
                     "tracking_no": l.get("tracking_no"),
                     "time": l.get("shipping_time"),
-                })
-
-            sender_groups[sender].append({
-                "sender_address": sender_address,
-                "receiver": receiver,
-                "description": description,
-                "tracking_no": l.get("tracking_no"),
-                "time": l.get("shipping_time"),
-            })
+                }
+            )
 
         # 找出隐蔽源头（同一地址发货给多个不同收件人）
         hidden_sources = []
         for address, records in address_groups.items():
             receivers = set(r["receiver"] for r in records)
             if len(receivers) >= 2:  # 发给多个不同收件人
-                hidden_sources.append({
-                    "address": address,
-                    "sender": records[0]["sender"],
-                    "shipment_count": len(records),
-                    "receiver_count": len(receivers),
-                    "receivers": list(receivers),
-                    "descriptions": list(set(r["description"] for r in records if r["description"])),
-                })
+                hidden_sources.append(
+                    {
+                        "address": address,
+                        "sender": records[0]["sender"],
+                        "shipment_count": len(records),
+                        "receiver_count": len(receivers),
+                        "receivers": list(receivers),
+                        "descriptions": list(
+                            set(r["description"] for r in records if r["description"])
+                        ),
+                    }
+                )
 
         # 按发货次数排序
         hidden_sources.sort(key=lambda x: x["shipment_count"], reverse=True)
 
         # 多地点发货的发件人（可能是中间商）
         multi_address_senders = [
-            sender for sender, records in sender_groups.items()
+            sender
+            for sender, records in sender_groups.items()
             if len(set(r["sender_address"] for r in records if r["sender_address"])) > 1
         ]
 
@@ -156,7 +168,9 @@ class RelationAnalyzer:
             "sender_details": {
                 sender: {
                     "shipment_count": len(records),
-                    "addresses": list(set(r["sender_address"] for r in records if r["sender_address"])),
+                    "addresses": list(
+                        set(r["sender_address"] for r in records if r["sender_address"])
+                    ),
                 }
                 for sender, records in sender_groups.items()
             },
@@ -164,9 +178,7 @@ class RelationAnalyzer:
 
     @classmethod
     def analyze_communication_frequency(
-        cls,
-        transactions: List[Dict[str, Any]],
-        communications: List[Dict[str, Any]]
+        cls, transactions: List[Dict[str, Any]], communications: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
         分析通讯联络频率，特别是转账前的联络
@@ -195,29 +207,30 @@ class RelationAnalyzer:
                 receiver = comm.get("receiver", "").strip()
 
                 # 检查是否涉及交易双方
-                is_related = (
-                    (initiator == payer and receiver == payee) or
-                    (initiator == payee and receiver == payer)
+                is_related = (initiator == payer and receiver == payee) or (
+                    initiator == payee and receiver == payer
                 )
 
                 if is_related and comm_time and trans_time:
                     time_diff = (trans_time - comm_time).total_seconds() / 60
                     if 0 < time_diff <= 10:
-                        pre_transfer_links.append({
-                            "transaction": {
-                                "payer": payer,
-                                "payee": payee,
-                                "amount": amount,
-                                "time": trans_time,
-                            },
-                            "communication": {
-                                "initiator": initiator,
-                                "receiver": receiver,
-                                "content": comm.get("content"),
-                                "time": comm_time,
-                            },
-                            "time_diff_minutes": round(time_diff, 1),
-                        })
+                        pre_transfer_links.append(
+                            {
+                                "transaction": {
+                                    "payer": payer,
+                                    "payee": payee,
+                                    "amount": amount,
+                                    "time": trans_time,
+                                },
+                                "communication": {
+                                    "initiator": initiator,
+                                    "receiver": receiver,
+                                    "content": comm.get("content"),
+                                    "time": comm_time,
+                                },
+                                "time_diff_minutes": round(time_diff, 1),
+                            }
+                        )
 
         # 通讯频率统计
         for comm in communications:
@@ -230,9 +243,7 @@ class RelationAnalyzer:
 
         # 高频联络人员
         high_freq_persons = sorted(
-            all_comm_freq.items(),
-            key=lambda x: x[1],
-            reverse=True
+            all_comm_freq.items(), key=lambda x: x[1], reverse=True
         )
 
         return {
@@ -247,7 +258,7 @@ class RelationAnalyzer:
         cls,
         transactions: List[Dict[str, Any]],
         logistics: List[Dict[str, Any]],
-        communications: List[Dict[str, Any]]
+        communications: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
         构建整体关系图谱
@@ -267,7 +278,9 @@ class RelationAnalyzer:
         logistics_sources = cls.trace_shipping_sources(logistics)
 
         # 3. 通讯联络分析
-        comm_analysis = cls.analyze_communication_frequency(transactions, communications)
+        comm_analysis = cls.analyze_communication_frequency(
+            transactions, communications
+        )
 
         # 4. 汇总节点信息
         all_persons = set()
@@ -276,47 +289,140 @@ class RelationAnalyzer:
                 all_persons.add(t.get("payer"))
             if t.get("payee"):
                 all_persons.add(t.get("payee"))
+        for l in logistics:
+            if l.get("sender"):
+                all_persons.add(l.get("sender"))
+            if l.get("receiver"):
+                all_persons.add(l.get("receiver"))
+        for c in communications:
+            if c.get("initiator"):
+                all_persons.add(c.get("initiator"))
+            if c.get("receiver"):
+                all_persons.add(c.get("receiver"))
+
+        upstream = []
+        downstream = []
+        core = []
 
         # 构建节点详情
         nodes = []
         for person in all_persons:
+            activity_profile = PersonClassifier.build_activity_profile(
+                transactions, logistics, communications, person
+            )
+            position_result = PersonClassifier.classify_chain_position(activity_profile)
+
             node = {
                 "id": person,
                 "name": person,
-                "money_in": money_flow["node_details"].get(person, {}).get("in_amount", 0),
-                "money_out": money_flow["node_details"].get(person, {}).get("out_amount", 0),
-                "is_upstream": person in money_flow["upstream"],
-                "is_downstream": person in money_flow["downstream"],
-                "is_core": person in money_flow["core"],
-                "comm_frequency": comm_analysis["communication_frequency"].get(person, 0),
+                "money_in": money_flow["node_details"]
+                .get(person, {})
+                .get("in_amount", 0),
+                "money_out": money_flow["node_details"]
+                .get(person, {})
+                .get("out_amount", 0),
+                "is_upstream": position_result["position"]
+                == PersonClassifier.CHAIN_UPSTREAM,
+                "is_downstream": position_result["position"]
+                == PersonClassifier.CHAIN_DOWNSTREAM,
+                "is_core": position_result["position"] == PersonClassifier.CHAIN_CORE,
+                "comm_frequency": comm_analysis["communication_frequency"].get(
+                    person, 0
+                ),
+                "position": position_result["position"],
+                "position_confidence": position_result.get("confidence", 0.0),
+                "position_reason": position_result.get("reason"),
+                "counterparties": sorted(
+                    set(
+                        list(activity_profile.get("transaction_counterparties", set()))
+                        + list(activity_profile.get("logistics_counterparties", set()))
+                        + list(
+                            activity_profile.get("communication_counterparties", set())
+                        )
+                    )
+                ),
             }
             nodes.append(node)
+
+            if node["is_upstream"]:
+                upstream.append(person)
+            elif node["is_downstream"]:
+                downstream.append(person)
+            elif node["is_core"]:
+                core.append(person)
+
+        nodes.sort(
+            key=lambda item: (
+                -(float(item.get("money_in", 0)) + float(item.get("money_out", 0))),
+                -int(item.get("comm_frequency", 0)),
+                item.get("name", ""),
+            )
+        )
+
+        upstream = sorted(
+            set(upstream),
+            key=lambda name: (
+                -(
+                    money_flow["node_details"].get(name, {}).get("in_amount", 0)
+                    + money_flow["node_details"].get(name, {}).get("out_amount", 0)
+                ),
+                name,
+            ),
+        )
+        downstream = sorted(
+            set(downstream),
+            key=lambda name: (
+                -(
+                    money_flow["node_details"].get(name, {}).get("in_amount", 0)
+                    + money_flow["node_details"].get(name, {}).get("out_amount", 0)
+                ),
+                name,
+            ),
+        )
+        core = sorted(
+            set(core),
+            key=lambda name: (
+                -(
+                    money_flow["node_details"].get(name, {}).get("in_amount", 0)
+                    + money_flow["node_details"].get(name, {}).get("out_amount", 0)
+                ),
+                name,
+            ),
+        )
 
         # 5. 构建边（关系）
         edges = []
 
         # 资金流边
         for edge in money_flow["edges"]:
-            edges.append({
-                "source": edge["from"],
-                "target": edge["to"],
-                "type": "money",
-                "amount": edge["amount"],
-                "time": str(edge["time"]) if edge["time"] else None,
-            })
+            edges.append(
+                {
+                    "source": edge["from"],
+                    "target": edge["to"],
+                    "type": "money",
+                    "amount": edge["amount"],
+                    "time": str(edge["time"]) if edge["time"] else None,
+                }
+            )
 
         # 物流边
         for l in logistics:
             sender = l.get("sender", "").strip()
             receiver = l.get("receiver", "").strip()
             if sender and receiver:
-                edges.append({
-                    "source": sender,
-                    "target": receiver,
-                    "type": "logistics",
-                    "description": l.get("description"),
-                    "time": str(l.get("shipping_time")) if l.get("shipping_time") else None,
-                })
+                edges.append(
+                    {
+                        "source": sender,
+                        "target": receiver,
+                        "type": "logistics",
+                        "description": l.get("description"),
+                        "time": (
+                            str(l.get("shipping_time"))
+                            if l.get("shipping_time")
+                            else None
+                        ),
+                    }
+                )
 
         return {
             "nodes": nodes,
@@ -329,17 +435,16 @@ class RelationAnalyzer:
                 "pre_transfer_count": comm_analysis["pre_transfer_count"],
                 "hidden_source_count": len(logistics_sources["hidden_sources"]),
             },
-            "upstream": money_flow["upstream"],
-            "downstream": money_flow["downstream"],
-            "core": money_flow["core"],
+            "upstream": upstream,
+            "downstream": downstream,
+            "core": core,
             "hidden_sources": logistics_sources["hidden_sources"],
             "pre_transfer_links": comm_analysis["pre_transfer_links"],
         }
 
     @classmethod
     def find_cross_case_connections(
-        cls,
-        cases_data: List[Dict[str, Any]]
+        cls, cases_data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
         跨案关联分析
@@ -382,10 +487,12 @@ class RelationAnalyzer:
         # 构建关联
         connections = []
         for person, case_ids in cross_case_persons.items():
-            connections.append({
-                "person": person,
-                "case_ids": list(set(case_ids)),
-                "case_count": len(set(case_ids)),
-            })
+            connections.append(
+                {
+                    "person": person,
+                    "case_ids": list(set(case_ids)),
+                    "case_count": len(set(case_ids)),
+                }
+            )
 
         return connections

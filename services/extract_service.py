@@ -2,10 +2,12 @@
 自动化抽取服务
 整合数据抽取逻辑，自动从原始数据中提取关键信息
 """
+
 from typing import Dict, List, Any, Tuple
 
 from services.upload_service import UploadService
 from services.clean_service import CleanService
+from services.person_classifier import PersonClassifier
 
 
 class ExtractService:
@@ -29,7 +31,7 @@ class ExtractService:
             "persons": [],
             "hidden_sources": [],
             "pre_transfer_links": [],
-            "statistics": {}
+            "statistics": {},
         }
 
     @classmethod
@@ -38,7 +40,7 @@ class ExtractService:
         transaction_file: str,
         communication_file: str,
         logistics_file: str,
-        case_id: int
+        case_id: int,
     ) -> Dict[str, Any]:
         """
         从文件路径自动抽取所有信息
@@ -72,7 +74,7 @@ class ExtractService:
         cls,
         transactions: List[Dict[str, Any]],
         communications: List[Dict[str, Any]],
-        logistics: List[Dict[str, Any]]
+        logistics: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
         从已解析的记录中抽取信息
@@ -98,7 +100,7 @@ class ExtractService:
         cls,
         transactions: List[Dict[str, Any]],
         communications: List[Dict[str, Any]],
-        logistics: List[Dict[str, Any]]
+        logistics: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
         内部抽取逻辑
@@ -128,7 +130,7 @@ class ExtractService:
             "persons": persons,
             "hidden_sources": hidden_sources,
             "pre_transfer_links": pre_transfer_links,
-            "statistics": statistics
+            "statistics": statistics,
         }
 
     @classmethod
@@ -138,7 +140,7 @@ class ExtractService:
         communications: List[Dict[str, Any]],
         logistics: List[Dict[str, Any]],
         persons: List[Dict[str, Any]],
-        hidden_sources: List[Dict[str, Any]]
+        hidden_sources: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """计算统计信息"""
         # 总交易金额
@@ -160,7 +162,9 @@ class ExtractService:
         pre_transfer_count = 0  # 后续从pre_transfer_links计算
 
         # 涉案金额排名（前5）
-        top_persons = sorted(persons, key=lambda x: x.get("illegal_business_amount", 0), reverse=True)[:5]
+        top_persons = sorted(
+            persons, key=lambda x: x.get("illegal_business_amount", 0), reverse=True
+        )[:5]
 
         return {
             "total_transactions": len(transactions),
@@ -169,7 +173,7 @@ class ExtractService:
             "communication_count": comm_count,
             "logistics_count": logistics_count,
             "hidden_source_count": hidden_source_count,
-            "top_persons": top_persons
+            "top_persons": top_persons,
         }
 
     @classmethod
@@ -177,7 +181,7 @@ class ExtractService:
         cls,
         person_name: str,
         transactions: List[Dict[str, Any]],
-        logistics: List[Dict[str, Any]]
+        logistics: List[Dict[str, Any]],
     ) -> str:
         """
         根据行为推断人员角色
@@ -188,35 +192,24 @@ class ExtractService:
         - 只有"收款"无发货 -> 核心嫌疑人（收款方）
         - 只有"付款"无收货 -> 下游买家
         """
-        # 查找该人员的所有交易
-        as_payer = [t for t in transactions if t.get("payer") == person_name]
-        as_payee = [t for t in transactions if t.get("payee") == person_name]
+        profile = PersonClassifier.build_activity_profile(
+            transactions, logistics, [], person_name
+        )
+        result = PersonClassifier.classify_business_role(profile)
 
-        # 查找该人员的所有物流
-        as_sender = [l for l in logistics if l.get("sender") == person_name]
-        as_receiver = [l for l in logistics if l.get("receiver") == person_name]
+        role_map = {
+            "生产者": "核心销售商",
+            "销售者": "核心销售商",
+            "中间商": "中间商/代理商",
+            "终端买家": "终端买家",
+            "待定": "待定",
+        }
 
-        has_outgoing_money = len(as_payer) > 0  # 付过钱
-        has_incoming_money = len(as_payee) > 0  # 收过钱
-        has_outgoing_logistics = len(as_sender) > 0  # 发过货
-        has_incoming_logistics = len(as_receiver) > 0  # 收过货
-
-        # 推断角色
-        if has_incoming_money and has_outgoing_logistics:
-            return "中间商/代理商"
-        elif has_outgoing_money and has_incoming_logistics:
-            return "终端买家"
-        elif has_incoming_money and not has_outgoing_logistics:
-            return "核心销售商"
-        elif has_outgoing_money and not has_incoming_logistics:
-            return "下游买家"
-        else:
-            return "待定"
+        return role_map.get(result["role"], "待定")
 
     @classmethod
     def extract_address_network(
-        cls,
-        logistics: List[Dict[str, Any]]
+        cls, logistics: List[Dict[str, Any]]
     ) -> Dict[str, List[str]]:
         """
         提取地址关系网络

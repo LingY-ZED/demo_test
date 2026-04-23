@@ -82,6 +82,7 @@ async def upload_transactions(
 
         recalculated_amount = CaseService.recalculate_case_amount(case.id)
         inferred_fields = CaseService.auto_update_inferred_fields(case.id)
+        person_sync = CaseService.sync_case_persons_to_db(case.id)
 
         return {
             "success": True,
@@ -93,6 +94,7 @@ async def upload_transactions(
                 inferred_fields.get("suspect_name") if inferred_fields else None
             ),
             "case_brand": inferred_fields.get("brand") if inferred_fields else None,
+            "person_sync": person_sync,
             "total_records": len(records),
             "saved_records": saved_count,
         }
@@ -165,6 +167,7 @@ async def upload_communications(
             saved_count += 1
 
         inferred_fields = CaseService.auto_update_inferred_fields(case.id)
+        person_sync = CaseService.sync_case_persons_to_db(case.id)
 
         return {
             "success": True,
@@ -175,6 +178,7 @@ async def upload_communications(
                 inferred_fields.get("suspect_name") if inferred_fields else None
             ),
             "case_brand": inferred_fields.get("brand") if inferred_fields else None,
+            "person_sync": person_sync,
             "total_records": len(records),
             "saved_records": saved_count,
         }
@@ -251,6 +255,7 @@ async def upload_logistics(
             saved_count += 1
 
         inferred_fields = CaseService.auto_update_inferred_fields(case.id)
+        person_sync = CaseService.sync_case_persons_to_db(case.id)
 
         return {
             "success": True,
@@ -261,6 +266,7 @@ async def upload_logistics(
                 inferred_fields.get("suspect_name") if inferred_fields else None
             ),
             "case_brand": inferred_fields.get("brand") if inferred_fields else None,
+            "person_sync": person_sync,
             "total_records": len(records),
             "saved_records": saved_count,
         }

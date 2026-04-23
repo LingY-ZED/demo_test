@@ -2,6 +2,7 @@
 关联分析服务
 单案上下游产业链分析、跨案关联、累犯标记
 """
+
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -19,10 +20,7 @@ class RelationService:
     RECIDIVISM_YEARS = 2
 
     @classmethod
-    def analyze_case_chain(
-        cls,
-        case_id: int
-    ) -> Dict[str, Any]:
+    def analyze_case_chain(cls, case_id: int) -> Dict[str, Any]:
         """
         单案上下游产业链分析
 
@@ -84,12 +82,14 @@ class RelationService:
                 if t.get("payee"):
                     persons.add(t.get("payee"))
 
-            cases_data.append({
-                "case_id": case.id,
-                "case_no": case.case_no,
-                "persons": list(persons),
-                "transactions": transactions,
-            })
+            cases_data.append(
+                {
+                    "case_id": case.id,
+                    "case_no": case.case_no,
+                    "persons": list(persons),
+                    "transactions": transactions,
+                }
+            )
 
         # 使用RelationAnalyzer的跨案分析
         connections = RelationAnalyzer.find_cross_case_connections(cases_data)
@@ -101,19 +101,19 @@ class RelationService:
             for case_id in conn["case_ids"]:
                 case = case_map.get(case_id)
                 if case:
-                    conn["case_details"].append({
-                        "case_no": case.case_no,
-                        "suspect_name": case.suspect_name,
-                        "brand": case.brand,
-                    })
+                    conn["case_details"].append(
+                        {
+                            "case_no": case.case_no,
+                            "suspect_name": case.suspect_name,
+                            "brand": case.brand,
+                        }
+                    )
 
         return connections
 
     @classmethod
     def detect_recidivism(
-        cls,
-        person_name: str,
-        check_date: Optional[datetime] = None
+        cls, person_name: str, check_date: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """
         累犯检测
@@ -145,13 +145,17 @@ class RelationService:
         related_cases = []
         for t in query:
             case = t.case
-            related_cases.append({
-                "case_id": case.id,
-                "case_no": case.case_no,
-                "suspect_name": case.suspect_name,
-                "transaction_time": t.transaction_time.isoformat() if t.transaction_time else None,
-                "amount": float(t.amount) if t.amount else 0,
-            })
+            related_cases.append(
+                {
+                    "case_id": case.id,
+                    "case_no": case.case_no,
+                    "suspect_name": case.suspect_name,
+                    "transaction_time": (
+                        t.transaction_time.isoformat() if t.transaction_time else None
+                    ),
+                    "amount": float(t.amount) if t.amount else 0,
+                }
+            )
 
         # 判断是否构成累犯（涉及多个案件）
         is_recidivist = len(set(c["case_id"] for c in related_cases)) > 1
@@ -166,10 +170,7 @@ class RelationService:
         }
 
     @classmethod
-    def get_upstream_suppliers(
-        cls,
-        case_id: int
-    ) -> List[Dict[str, Any]]:
+    def get_upstream_suppliers(cls, case_id: int) -> List[Dict[str, Any]]:
         """
         获取上游供货商列表
 
@@ -181,29 +182,34 @@ class RelationService:
         """
         transactions = cls._get_case_transactions(case_id)
         logistics = cls._get_case_logistics(case_id)
+        communications = cls._get_case_communications(case_id)
 
-        # 使用RelationAnalyzer分析资金流
-        money_flow = RelationAnalyzer.analyze_money_flow(transactions)
-        upstream_names = money_flow.get("upstream", [])
+        relation_graph = RelationAnalyzer.build_relation_graph(
+            transactions, logistics, communications
+        )
+        upstream_names = relation_graph.get("upstream", [])
+        node_map = {node.get("name"): node for node in relation_graph.get("nodes", [])}
 
         # 获取每个上游的详细信息
         upstream_suppliers = []
         for name in upstream_names:
+            node = node_map.get(name, {})
             supplier = {
                 "name": name,
-                "total_out_amount": money_flow["node_details"].get(name, {}).get("out_amount", 0),
-                "counterparties": money_flow["node_details"].get(name, {}).get("counterparties", []),
-                "evidence": cls._collect_upstream_evidence(name, transactions, logistics),
+                "total_out_amount": node.get("money_out", 0),
+                "counterparties": node.get("counterparties", []),
+                "evidence": cls._collect_upstream_evidence(
+                    name, transactions, logistics
+                ),
+                "position": node.get("position", "待定"),
+                "position_confidence": node.get("position_confidence", 0.0),
             }
             upstream_suppliers.append(supplier)
 
         return upstream_suppliers
 
     @classmethod
-    def get_downstream_buyers(
-        cls,
-        case_id: int
-    ) -> List[Dict[str, Any]]:
+    def get_downstream_buyers(cls, case_id: int) -> List[Dict[str, Any]]:
         """
         获取下游买家列表
 
@@ -215,29 +221,34 @@ class RelationService:
         """
         transactions = cls._get_case_transactions(case_id)
         logistics = cls._get_case_logistics(case_id)
+        communications = cls._get_case_communications(case_id)
 
-        # 使用RelationAnalyzer分析资金流
-        money_flow = RelationAnalyzer.analyze_money_flow(transactions)
-        downstream_names = money_flow.get("downstream", [])
+        relation_graph = RelationAnalyzer.build_relation_graph(
+            transactions, logistics, communications
+        )
+        downstream_names = relation_graph.get("downstream", [])
+        node_map = {node.get("name"): node for node in relation_graph.get("nodes", [])}
 
         # 获取每个下游的详细信息
         downstream_buyers = []
         for name in downstream_names:
+            node = node_map.get(name, {})
             buyer = {
                 "name": name,
-                "total_in_amount": money_flow["node_details"].get(name, {}).get("in_amount", 0),
-                "counterparties": money_flow["node_details"].get(name, {}).get("counterparties", []),
-                "evidence": cls._collect_downstream_evidence(name, transactions, logistics),
+                "total_in_amount": node.get("money_in", 0),
+                "counterparties": node.get("counterparties", []),
+                "evidence": cls._collect_downstream_evidence(
+                    name, transactions, logistics
+                ),
+                "position": node.get("position", "待定"),
+                "position_confidence": node.get("position_confidence", 0.0),
             }
             downstream_buyers.append(buyer)
 
         return downstream_buyers
 
     @classmethod
-    def get_core_suspects(
-        cls,
-        case_id: int
-    ) -> List[Dict[str, Any]]:
+    def get_core_suspects(cls, case_id: int) -> List[Dict[str, Any]]:
         """
         获取核心嫌疑人列表
 
@@ -251,9 +262,10 @@ class RelationService:
         logistics = cls._get_case_logistics(case_id)
         communications = cls._get_case_communications(case_id)
 
-        # 使用RelationAnalyzer分析资金流
-        money_flow = RelationAnalyzer.analyze_money_flow(transactions)
-        core_names = money_flow.get("core", [])
+        relation_graph = RelationAnalyzer.build_relation_graph(
+            transactions, logistics, communications
+        )
+        core_names = relation_graph.get("core", [])
 
         # 获取每个核心嫌疑人的角色分析
         core_suspects = []
@@ -334,7 +346,7 @@ class RelationService:
         transactions: List[Dict[str, Any]],
         logistics: List[Dict[str, Any]],
         communications: List[Dict[str, Any]],
-        relation_graph: Dict[str, Any]
+        relation_graph: Dict[str, Any],
     ) -> Dict[str, Any]:
         """分析各角色的涉嫌罪名"""
         role_summary = {
@@ -371,9 +383,7 @@ class RelationService:
 
     @classmethod
     def _calculate_amount_summary(
-        cls,
-        transactions: List[Dict[str, Any]],
-        relation_graph: Dict[str, Any]
+        cls, transactions: List[Dict[str, Any]], relation_graph: Dict[str, Any]
     ) -> Dict[str, Any]:
         """计算涉案金额汇总"""
         total_amount = sum(float(t.get("amount", 0)) for t in transactions)
@@ -383,13 +393,15 @@ class RelationService:
 
         return {
             "total_transaction_amount": total_amount,
-            "illegal_business_amount": amount_calc.get("illegal_business_amount", total_amount),
+            "illegal_business_amount": amount_calc.get(
+                "illegal_business_amount", total_amount
+            ),
             "illegal_income": amount_calc.get("illegal_income", total_amount * 0.7),
             "cost_ratio": amount_calc.get("cost_ratio", 0.3),
             "threshold_check": AmountCalculator.check_threshold(
                 total_amount,
                 amount_calc.get("illegal_income", total_amount * 0.7),
-                1  # 假设1个商标
+                1,  # 假设1个商标
             ),
         }
 
@@ -398,28 +410,40 @@ class RelationService:
         cls,
         person_name: str,
         transactions: List[Dict[str, Any]],
-        logistics: List[Dict[str, Any]]
+        logistics: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """收集上游供货商的证据"""
         evidence = {"transactions": [], "logistics": []}
 
         for t in transactions:
             if t.get("payer") == person_name:
-                evidence["transactions"].append({
-                    "type": "付款",
-                    "counterparty": t.get("payee"),
-                    "amount": float(t.get("amount", 0)),
-                    "time": str(t.get("transaction_time")) if t.get("transaction_time") else None,
-                })
+                evidence["transactions"].append(
+                    {
+                        "type": "付款",
+                        "counterparty": t.get("payee"),
+                        "amount": float(t.get("amount", 0)),
+                        "time": (
+                            str(t.get("transaction_time"))
+                            if t.get("transaction_time")
+                            else None
+                        ),
+                    }
+                )
 
         for l in logistics:
             if l.get("sender") == person_name:
-                evidence["logistics"].append({
-                    "type": "发货",
-                    "counterparty": l.get("receiver"),
-                    "description": l.get("description"),
-                    "time": str(l.get("shipping_time")) if l.get("shipping_time") else None,
-                })
+                evidence["logistics"].append(
+                    {
+                        "type": "发货",
+                        "counterparty": l.get("receiver"),
+                        "description": l.get("description"),
+                        "time": (
+                            str(l.get("shipping_time"))
+                            if l.get("shipping_time")
+                            else None
+                        ),
+                    }
+                )
 
         return evidence
 
@@ -428,27 +452,39 @@ class RelationService:
         cls,
         person_name: str,
         transactions: List[Dict[str, Any]],
-        logistics: List[Dict[str, Any]]
+        logistics: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """收集下游买家的证据"""
         evidence = {"transactions": [], "logistics": []}
 
         for t in transactions:
             if t.get("payee") == person_name:
-                evidence["transactions"].append({
-                    "type": "收款",
-                    "counterparty": t.get("payer"),
-                    "amount": float(t.get("amount", 0)),
-                    "time": str(t.get("transaction_time")) if t.get("transaction_time") else None,
-                })
+                evidence["transactions"].append(
+                    {
+                        "type": "收款",
+                        "counterparty": t.get("payer"),
+                        "amount": float(t.get("amount", 0)),
+                        "time": (
+                            str(t.get("transaction_time"))
+                            if t.get("transaction_time")
+                            else None
+                        ),
+                    }
+                )
 
         for l in logistics:
             if l.get("receiver") == person_name:
-                evidence["logistics"].append({
-                    "type": "收货",
-                    "counterparty": l.get("sender"),
-                    "description": l.get("description"),
-                    "time": str(l.get("shipping_time")) if l.get("shipping_time") else None,
-                })
+                evidence["logistics"].append(
+                    {
+                        "type": "收货",
+                        "counterparty": l.get("sender"),
+                        "description": l.get("description"),
+                        "time": (
+                            str(l.get("shipping_time"))
+                            if l.get("shipping_time")
+                            else None
+                        ),
+                    }
+                )
 
         return evidence
