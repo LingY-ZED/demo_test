@@ -80,6 +80,13 @@
   - 除白名单接口外，前端请求需统一携带 `Authorization: Basic <base64(username:password)>`。
   - 收到 `401` 时应提示重新输入账号密码。
 
+### 3. 鉴权交互体验优化 (`main.py`)
+- **功能**: 优化前端登录体验，防止浏览器原生弹窗干扰自定义登录页。
+- **修改**:
+  - 在 `basic_auth_middleware` 中移除了 `401 Unauthorized` 响应的 `WWW-Authenticate: Basic` 响应头。
+  - 此项修改允许前端自定义登录 UI（LoginPage）完全接管鉴权交互，而不会触发浏览器自带的灰色登录框。
+- **修改人**: ln2069
+
 ### 1. 数据导入格式校验增强 (`services/upload_service.py`, `api/upload.py`, `streamlit_app.py`)
 - **功能**: 当上传表格格式错误（缺少必填列、仅有表头无有效数据）时，向用户返回明确可读提示，避免笼统“导入失败”。
 - **修改**:
