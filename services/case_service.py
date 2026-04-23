@@ -2,44 +2,205 @@
 案件服务
 提供案件的创建、查询、管理功能
 """
+
 from typing import Dict, List, Any, Optional
 from decimal import Decimal
 from datetime import datetime
+from collections import Counter
 
-from models.database import Case, Person, Transaction, Communication, Logistics, SuspiciousClue
+from models.database import (
+    Case,
+    Person,
+    Transaction,
+    Communication,
+    Logistics,
+    SuspiciousClue,
+)
+from utils.keywords_data import BRAND_KEYWORDS
 
 
 class CaseService:
     """案件服务"""
 
+    DEFAULT_SUSPECT_NAME = "待推导"
+
     @classmethod
     def create_case(
         cls,
         case_no: str,
-        suspect_name: str,
+        suspect_name: Optional[str] = None,
         brand: Optional[str] = None,
-        amount: Optional[Decimal] = None
     ) -> Case:
         """
         创建案件
 
         Args:
             case_no: 案件编号
-            suspect_name: 嫌疑人姓名
+            suspect_name: 嫌疑人姓名（可选，默认待推导）
             brand: 涉案品牌
-            amount: 涉案金额
 
         Returns:
             创建的案件对象
         """
         case = Case.create(
             case_no=case_no,
-            suspect_name=suspect_name,
+            suspect_name=suspect_name or cls.DEFAULT_SUSPECT_NAME,
             brand=brand,
-            amount=amount or Decimal("0"),
-            created_at=datetime.now()
+            amount=Decimal("0"),
+            created_at=datetime.now(),
         )
         return case
+
+    @classmethod
+    def infer_suspect_name(cls, case_id: int) -> Optional[str]:
+        """
+        根据当前案件数据推导嫌疑人。
+
+        规则：
+        1. 优先基于交易记录推导，收款方权重高于打款方；
+        2. 若无交易记录，回退到通讯与物流中的高频主体。
+        """
+        score_map: Dict[str, Decimal] = {}
+
+        transactions = Transaction.select().where(Transaction.case == case_id)
+        has_transactions = False
+        for t in transactions:
+            has_transactions = True
+            amount = t.amount or Decimal("0")
+            if t.payer:
+                score_map[t.payer] = (
+                    score_map.get(t.payer, Decimal("0"))
+                    + amount * Decimal("0.8")
+                    + Decimal("1")
+                )
+            if t.payee:
+                score_map[t.payee] = (
+                    score_map.get(t.payee, Decimal("0"))
+                    + amount * Decimal("1.2")
+                    + Decimal("1")
+                )
+
+        if has_transactions and score_map:
+            return max(score_map.items(), key=lambda item: item[1])[0]
+
+        freq = Counter()
+        logistics = Logistics.select().where(Logistics.case == case_id)
+        for l in logistics:
+            if l.sender:
+                freq[l.sender] += 1
+            if l.receiver:
+                freq[l.receiver] += 1
+
+        communications = Communication.select().where(Communication.case == case_id)
+        for c in communications:
+            if c.initiator:
+                freq[c.initiator] += 1
+            if c.receiver:
+                freq[c.receiver] += 1
+
+        if not freq:
+            return None
+        return freq.most_common(1)[0][0]
+
+    @classmethod
+    def infer_brand(cls, case_id: int) -> Optional[str]:
+        """
+        根据案件文本证据推导涉案品牌。
+
+        数据来源：交易备注、物流描述、通讯内容。
+        """
+        text_parts: List[str] = []
+
+        transactions = Transaction.select().where(Transaction.case == case_id)
+        for t in transactions:
+            if t.remark:
+                text_parts.append(t.remark)
+
+        logistics = Logistics.select().where(Logistics.case == case_id)
+        for l in logistics:
+            if l.description:
+                text_parts.append(l.description)
+
+        communications = Communication.select().where(Communication.case == case_id)
+        for c in communications:
+            if c.content:
+                text_parts.append(c.content)
+
+        if not text_parts:
+            return None
+
+        full_text = "\n".join(text_parts)
+        full_text_lower = full_text.lower()
+        brand_hits: Counter = Counter()
+
+        for canonical_brand, aliases in BRAND_KEYWORDS.items():
+            for alias in aliases:
+                if not alias:
+                    continue
+                alias_lower = alias.lower()
+                brand_hits[canonical_brand] += full_text_lower.count(alias_lower)
+
+        if not brand_hits:
+            return None
+
+        brand, hit_count = brand_hits.most_common(1)[0]
+        if hit_count <= 0:
+            return None
+        return brand
+
+    @classmethod
+    def auto_update_inferred_fields(cls, case_id: int) -> Optional[Dict[str, Any]]:
+        """
+        自动推导并回写案件的嫌疑人和品牌字段。
+
+        Returns:
+            更新结果字典；若案件不存在返回None
+        """
+        case = cls.get_case_by_id(case_id)
+        if not case:
+            return None
+
+        inferred_suspect_name = cls.infer_suspect_name(case_id)
+        inferred_brand = cls.infer_brand(case_id)
+
+        updated_fields = []
+        if inferred_suspect_name and case.suspect_name != inferred_suspect_name:
+            case.suspect_name = inferred_suspect_name
+            updated_fields.append(Case.suspect_name)
+
+        if inferred_brand and case.brand != inferred_brand:
+            case.brand = inferred_brand
+            updated_fields.append(Case.brand)
+
+        if updated_fields:
+            case.save(only=updated_fields)
+
+        return {
+            "case_id": case.id,
+            "suspect_name": case.suspect_name,
+            "brand": case.brand,
+        }
+
+    @classmethod
+    def recalculate_case_amount(cls, case_id: int) -> Optional[Decimal]:
+        """
+        根据资金流水重新计算案件涉案金额。
+
+        Args:
+            case_id: 案件ID
+
+        Returns:
+            重新计算后的金额；若案件不存在则返回None
+        """
+        case = cls.get_case_by_id(case_id)
+        if not case:
+            return None
+
+        transactions = Transaction.select().where(Transaction.case == case_id)
+        total_amount = sum((t.amount or Decimal("0")) for t in transactions)
+        case.amount = total_amount
+        case.save(only=[Case.amount])
+        return total_amount
 
     @classmethod
     def get_case_by_id(cls, case_id: int) -> Optional[Case]:
@@ -80,7 +241,7 @@ class CaseService:
         suspect_name: Optional[str] = None,
         brand: Optional[str] = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """
         查询案件列表
@@ -281,7 +442,6 @@ class CaseService:
         case_id: int,
         suspect_name: Optional[str] = None,
         brand: Optional[str] = None,
-        amount: Optional[Decimal] = None
     ) -> Optional[Case]:
         """
         更新案件信息
@@ -290,7 +450,6 @@ class CaseService:
             case_id: 案件ID
             suspect_name: 嫌疑人姓名
             brand: 涉案品牌
-            amount: 涉案金额
 
         Returns:
             更新后的案件对象或None
@@ -299,12 +458,7 @@ class CaseService:
         if not case:
             return None
 
-        if suspect_name is not None:
-            case.suspect_name = suspect_name
-        if brand is not None:
-            case.brand = brand
-        if amount is not None:
-            case.amount = amount
+        # suspect_name/brand 为推导字段，不允许通过该接口手工修改
 
         case.save()
         return case
@@ -330,7 +484,6 @@ class CaseService:
 
     # ==================== 私有转换方法 ====================
 
-
     @classmethod
     def _case_to_dict(cls, case: Case) -> Dict[str, Any]:
         """案件对象转字典"""
@@ -349,7 +502,9 @@ class CaseService:
         return {
             "id": t.id,
             "case_id": t.case.id if t.case else None,
-            "transaction_time": t.transaction_time.isoformat() if t.transaction_time else None,
+            "transaction_time": (
+                t.transaction_time.isoformat() if t.transaction_time else None
+            ),
             "payer": t.payer,
             "payee": t.payee,
             "amount": float(t.amount) if t.amount else 0,
@@ -363,7 +518,9 @@ class CaseService:
         return {
             "id": c.id,
             "case_id": c.case.id if c.case else None,
-            "communication_time": c.communication_time.isoformat() if c.communication_time else None,
+            "communication_time": (
+                c.communication_time.isoformat() if c.communication_time else None
+            ),
             "initiator": c.initiator,
             "receiver": c.receiver,
             "content": c.content,

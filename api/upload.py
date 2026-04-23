@@ -11,6 +11,7 @@ import os
 
 from services.upload_service import UploadService, TableFormatError
 from services.clean_service import CleanService
+from services.case_service import CaseService
 from models.database import Case
 
 router = APIRouter(prefix="/api/upload", tags=["数据导入"])
@@ -79,11 +80,19 @@ async def upload_transactions(
             )
             saved_count += 1
 
+        recalculated_amount = CaseService.recalculate_case_amount(case.id)
+        inferred_fields = CaseService.auto_update_inferred_fields(case.id)
+
         return {
             "success": True,
             "message": f"成功导入{saved_count}条资金流水",
             "case_id": case.id,
             "case_no": case.case_no,
+            "case_amount": float(recalculated_amount or 0),
+            "case_suspect_name": (
+                inferred_fields.get("suspect_name") if inferred_fields else None
+            ),
+            "case_brand": inferred_fields.get("brand") if inferred_fields else None,
             "total_records": len(records),
             "saved_records": saved_count,
         }
@@ -155,11 +164,17 @@ async def upload_communications(
             )
             saved_count += 1
 
+        inferred_fields = CaseService.auto_update_inferred_fields(case.id)
+
         return {
             "success": True,
             "message": f"成功导入{saved_count}条通讯记录",
             "case_id": case.id,
             "case_no": case.case_no,
+            "case_suspect_name": (
+                inferred_fields.get("suspect_name") if inferred_fields else None
+            ),
+            "case_brand": inferred_fields.get("brand") if inferred_fields else None,
             "total_records": len(records),
             "saved_records": saved_count,
         }
@@ -235,11 +250,17 @@ async def upload_logistics(
             )
             saved_count += 1
 
+        inferred_fields = CaseService.auto_update_inferred_fields(case.id)
+
         return {
             "success": True,
             "message": f"成功导入{saved_count}条物流记录",
             "case_id": case.id,
             "case_no": case.case_no,
+            "case_suspect_name": (
+                inferred_fields.get("suspect_name") if inferred_fields else None
+            ),
+            "case_brand": inferred_fields.get("brand") if inferred_fields else None,
             "total_records": len(records),
             "saved_records": saved_count,
         }

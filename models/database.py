@@ -3,7 +3,7 @@ from peewee import *
 
 from config.settings import settings
 
-db = SqliteDatabase(str(settings.database_path))
+db = SqliteDatabase(str(settings.database_path), pragmas={"foreign_keys": 1})
 
 
 class BaseModel(Model):
@@ -13,10 +13,13 @@ class BaseModel(Model):
 
 class Case(BaseModel):
     """案件表"""
+
     case_no = CharField(max_length=50, unique=True, verbose_name="案件编号")
     suspect_name = CharField(max_length=100, verbose_name="嫌疑人姓名")
     brand = CharField(max_length=100, null=True, verbose_name="涉案品牌")
-    amount = DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="涉案金额")
+    amount = DecimalField(
+        max_digits=15, decimal_places=2, default=0, verbose_name="涉案金额"
+    )
     created_at = DateTimeField(default=datetime.now, verbose_name="创建时间")
 
     class Meta:
@@ -25,12 +28,15 @@ class Case(BaseModel):
 
 class Person(BaseModel):
     """人员表"""
+
     name = CharField(max_length=100, verbose_name="姓名")
     role = CharField(max_length=50, null=True, verbose_name="角色")
     is_authorized = BooleanField(default=None, null=True, verbose_name="是否有授权")
     authorization_proof = TextField(null=True, verbose_name="授权证明")
     subjective_knowledge_score = IntegerField(default=0, verbose_name="主观明知评分")
-    illegal_business_amount = DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="非法经营数额")
+    illegal_business_amount = DecimalField(
+        max_digits=15, decimal_places=2, default=0, verbose_name="非法经营数额"
+    )
     linked_cases = IntegerField(default=0, verbose_name="关联案件数")
 
     class Meta:
@@ -39,6 +45,7 @@ class Person(BaseModel):
 
 class Transaction(BaseModel):
     """资金流水表"""
+
     case = ForeignKeyField(Case, backref="transactions", on_delete="CASCADE")
     transaction_time = DateTimeField(verbose_name="交易时间")
     payer = CharField(max_length=100, verbose_name="打款方")
@@ -53,6 +60,7 @@ class Transaction(BaseModel):
 
 class Communication(BaseModel):
     """通讯记录表"""
+
     case = ForeignKeyField(Case, backref="communications", on_delete="CASCADE")
     communication_time = DateTimeField(verbose_name="联络时间")
     initiator = CharField(max_length=100, verbose_name="发起方")
@@ -65,6 +73,7 @@ class Communication(BaseModel):
 
 class Logistics(BaseModel):
     """物流记录表"""
+
     case = ForeignKeyField(Case, backref="logistics", on_delete="CASCADE")
     shipping_time = DateTimeField(verbose_name="发货时间")
     tracking_no = CharField(max_length=100, null=True, verbose_name="快递单号")
@@ -73,7 +82,9 @@ class Logistics(BaseModel):
     receiver = CharField(max_length=100, verbose_name="收件人")
     receiver_address = TextField(null=True, verbose_name="收件地址")
     description = TextField(null=True, verbose_name="物品描述")
-    weight = DecimalField(max_digits=10, decimal_places=2, null=True, verbose_name="包裹重量")
+    weight = DecimalField(
+        max_digits=10, decimal_places=2, null=True, verbose_name="包裹重量"
+    )
 
     class Meta:
         table_name = "logistics"
@@ -81,6 +92,7 @@ class Logistics(BaseModel):
 
 class SuspiciousClue(BaseModel):
     """可疑线索表"""
+
     case = ForeignKeyField(Case, backref="suspicious_clues", on_delete="CASCADE")
     clue_type = CharField(max_length=50, verbose_name="线索类型")
     evidence_text = TextField(verbose_name="证据原文")
@@ -96,14 +108,9 @@ class SuspiciousClue(BaseModel):
 def init_db():
     """初始化数据库表"""
     db.connect()
-    db.create_tables([
-        Case,
-        Person,
-        Transaction,
-        Communication,
-        Logistics,
-        SuspiciousClue
-    ])
+    db.create_tables(
+        [Case, Person, Transaction, Communication, Logistics, SuspiciousClue]
+    )
     db.close()
     print("数据库初始化完成")
 

@@ -1,10 +1,10 @@
 """
 案件管理API路由
 """
+
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List
-from pydantic import BaseModel
-from decimal import Decimal
+from pydantic import BaseModel, ConfigDict
 
 from services.case_service import CaseService
 
@@ -12,16 +12,14 @@ router = APIRouter(prefix="/api/cases", tags=["案件管理"])
 
 
 class CaseCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     case_no: str
-    suspect_name: str
-    brand: Optional[str] = None
-    amount: Optional[float] = None
 
 
 class CaseUpdate(BaseModel):
-    suspect_name: Optional[str] = None
-    brand: Optional[str] = None
-    amount: Optional[float] = None
+    model_config = ConfigDict(extra="forbid")
+    pass
 
 
 @router.get("", response_model=List[dict])
@@ -30,7 +28,7 @@ async def list_cases(
     suspect_name: Optional[str] = Query(None, description="嫌疑人姓名模糊匹配"),
     brand: Optional[str] = Query(None, description="涉案品牌模糊匹配"),
     limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
 ):
     """
     案件列表查询
@@ -40,7 +38,7 @@ async def list_cases(
         suspect_name=suspect_name,
         brand=brand,
         limit=limit,
-        offset=offset
+        offset=offset,
     )
     return cases
 
@@ -68,9 +66,6 @@ async def create_case(case_data: CaseCreate):
 
     case = CaseService.create_case(
         case_no=case_data.case_no,
-        suspect_name=case_data.suspect_name,
-        brand=case_data.brand,
-        amount=Decimal(str(case_data.amount)) if case_data.amount else None
     )
     return CaseService._case_to_dict(case)
 
@@ -80,15 +75,28 @@ async def update_case(case_id: int, case_data: CaseUpdate):
     """
     更新案件
     """
-    case = CaseService.update_case(
-        case_id=case_id,
-        suspect_name=case_data.suspect_name,
-        brand=case_data.brand,
-        amount=Decimal(str(case_data.amount)) if case_data.amount else None
-    )
+    case = CaseService.update_case(case_id=case_id)
     if not case:
         raise HTTPException(status_code=404, detail="案件不存在")
     return CaseService._case_to_dict(case)
+
+
+@router.post("/{case_id}/infer-fields", response_model=dict)
+async def infer_case_fields(case_id: int):
+    """
+    重新推导案件嫌疑人和涉案品牌
+    """
+    case = CaseService.get_case_by_id(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="案件不存在")
+
+    infer_result = CaseService.auto_update_inferred_fields(case_id)
+    return {
+        "success": True,
+        "message": "推导完成",
+        "case": CaseService._case_to_dict(CaseService.get_case_by_id(case_id)),
+        "inference": infer_result,
+    }
 
 
 @router.delete("/{case_id}")
