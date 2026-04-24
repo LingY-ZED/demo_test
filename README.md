@@ -44,7 +44,7 @@ pip install fastapi uvicorn peewee pandas openpyxl python-docx
 python main.py
 
 # 访问 API 文档
-http://localhost:8000/docs
+http://localhost:8001/docs
 ```
 
 ## Docker 一键部署（仅后端）
@@ -68,8 +68,8 @@ docker compose up -d --build
 
 4. 访问地址：
 
-- API 文档：[http://localhost:8000/docs](http://localhost:8000/docs)
-- 健康检查：[http://localhost:8000/health](http://localhost:8000/health)
+- API 文档：[http://localhost:8001/docs](http://localhost:8001/docs)
+- 健康检查：[http://localhost:8001/health](http://localhost:8001/health)
 
 5. 常用命令：
 
@@ -190,7 +190,7 @@ docker compose down
 | 数据导出 | `/api/export/csv` | CSV 导出 |
 | 报告生成 | `/api/report/*` | 生成分析报告 |
 
-详细接口文档请访问 `http://localhost:8000/docs`
+详细接口文档请访问 `http://localhost:8001/docs`
 
 ## 核心算法
 
