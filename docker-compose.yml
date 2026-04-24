@@ -14,3 +14,10 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    networks:
+      - huoyan_net
+
+networks:
+  huoyan_net:
+    external: true
+    name: huoyan_net

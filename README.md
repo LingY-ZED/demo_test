@@ -51,19 +51,27 @@ http://localhost:8000/docs
 
 说明：`streamlit_app.py` 仅用于本地测试，不参与生产部署。Docker 仅启动 FastAPI 后端服务。
 
+分离部署前后端时，后端需要加入共享网络 `huoyan_net`，供前端容器反向代理访问。
+
 1. 准备环境变量：复制 [.env.example](.env.example) 为 `.env` 并修改账号密码
-2. 一键启动后端：
+2. 首次部署创建共享网络（仅一次）：
+
+```bash
+docker network create huoyan_net
+```
+
+3. 一键启动后端：
 
 ```bash
 docker compose up -d --build
 ```
 
-3. 访问地址：
+4. 访问地址：
 
 - API 文档：[http://localhost:8000/docs](http://localhost:8000/docs)
 - 健康检查：[http://localhost:8000/health](http://localhost:8000/health)
 
-4. 常用命令：
+5. 常用命令：
 
 ```bash
 # 查看日志
