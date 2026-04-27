@@ -147,13 +147,17 @@ async def upload_communications(
             temp_path = temp_file.name
 
         # 解析数据
+        is_wechat = UploadService._detect_wechat_format(temp_path)
         records = UploadService.parse_communications(temp_path, case.id)
+
+        # 微信格式：提取转账记录
+        wechat_transactions = UploadService.get_wechat_transactions()
 
         # 清洗数据
         cleaned_records = CleanService.clean_communications(records)
 
         # 保存到数据库
-        from models.database import Communication
+        from models.database import Communication, Transaction
 
         saved_count = 0
         for record in cleaned_records:
@@ -163,13 +167,36 @@ async def upload_communications(
                 initiator=record.get("initiator", ""),
                 receiver=record.get("receiver", ""),
                 content=record.get("content"),
+                media_type=record.get("media_type"),
+                is_deleted=record.get("is_deleted", False),
+                raw_content=record.get("raw_content"),
             )
             saved_count += 1
+
+        # 保存从微信提取的转账记录
+        txn_saved = 0
+        for txn in wechat_transactions:
+            if txn.get("transaction_time") and txn.get("amount", 0) > 0:
+                Transaction.create(
+                    case=case,
+                    transaction_time=txn.get("transaction_time", datetime.now()),
+                    payer=txn.get("payer", ""),
+                    payee=txn.get("payee", ""),
+                    amount=txn.get("amount", 0),
+                    payment_method=txn.get("payment_method"),
+                    remark=txn.get("remark"),
+                )
+                txn_saved += 1
 
         inferred_fields = CaseService.auto_update_inferred_fields(case.id)
         person_sync = CaseService.sync_case_persons_to_db(case.id)
 
-        return {
+        # 如有提取的转账，重算案件金额
+        recalculated_amount = None
+        if txn_saved > 0:
+            recalculated_amount = CaseService.recalculate_case_amount(case.id)
+
+        result = {
             "success": True,
             "message": f"成功导入{saved_count}条通讯记录",
             "case_id": case.id,
@@ -182,6 +209,12 @@ async def upload_communications(
             "total_records": len(records),
             "saved_records": saved_count,
         }
+        if is_wechat:
+            result["format_detected"] = "wechat"
+            result["extracted_transactions"] = txn_saved
+            if recalculated_amount is not None:
+                result["case_amount"] = float(recalculated_amount)
+        return result
     except TableFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

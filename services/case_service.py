@@ -128,6 +128,8 @@ class CaseService:
         for c in communications:
             if c.content:
                 text_parts.append(c.content)
+            if c.raw_content:
+                text_parts.append(c.raw_content)
 
         if not text_parts:
             return None
@@ -702,6 +704,8 @@ class CaseService:
             "initiator": c.initiator,
             "receiver": c.receiver,
             "content": c.content,
+            "media_type": c.media_type,
+            "is_deleted": c.is_deleted,
         }
 
     @classmethod

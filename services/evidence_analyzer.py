@@ -20,6 +20,36 @@ class EvidenceAnalyzer:
     # 银行卡号脱敏正则
     BANK_PATTERN = re.compile(r'(\d{4})\d+(\d{4})')
 
+    @staticmethod
+    def _extract_text_for_analysis(text: str) -> str:
+        """如果是 CSV 格式，只提取内容列的值；否则原样返回"""
+        if not text or not text.strip():
+            return text
+        lines = text.strip().split("\n")
+        if len(lines) < 2:
+            return text
+        first_line = lines[0].lower()
+        if not any(col in first_line for col in ("content", "聊天内容", "mediatype")):
+            return text
+        # 找到内容列的索引
+        headers = [h.strip() for h in lines[0].split(",")]
+        content_idx = None
+        for idx, h in enumerate(headers):
+            if h in ("content", "聊天内容"):
+                content_idx = idx
+                break
+        if content_idx is None:
+            return text
+        # 只提取内容列的值
+        extracted = []
+        for line in lines[1:]:
+            parts = line.split(",")
+            if content_idx < len(parts):
+                val = parts[content_idx].strip().strip('"').strip("'")
+                if val and not val.startswith("{") and not val.startswith("<"):
+                    extracted.append(val)
+        return "\n".join(extracted) if extracted else text
+
     @classmethod
     def analyze_evidence(
         cls,
@@ -36,6 +66,9 @@ class EvidenceAnalyzer:
         Returns:
             分析结果
         """
+        # 从 CSV 原文中只提取内容列，避免时间戳/URL 等元数据的误匹配
+        analysis_text = cls._extract_text_for_analysis(evidence_text)
+
         result = {
             "original_text": evidence_text,
             "masked_text": cls.mask_sensitive_info(evidence_text),
@@ -44,13 +77,13 @@ class EvidenceAnalyzer:
             "key_actors": [],
         }
 
-        # 价格异常判定
+        # 价格异常判定（使用原始文本，保留价格数字）
         price_result = cls.analyze_price_anomaly(evidence_text)
         if price_result["has_anomaly"]:
             result["price_anomaly"] = price_result
 
-        # 主观明知分析
-        score_result = ScoreService.analyze_text(evidence_text)
+        # 主观明知分析（使用清洗后的文本）
+        score_result = ScoreService.analyze_text(analysis_text)
         if score_result["score"] > 0:
             result["subjective_knowledge"] = {
                 "score": score_result["score"],
@@ -60,8 +93,8 @@ class EvidenceAnalyzer:
                 "crime_type": ScoreService.get_crime_type(score_result["matches"]),
             }
 
-        # 关键主体提取
-        result["key_actors"] = cls.extract_key_actors(evidence_text, evidence_type)
+        # 关键主体提取（使用清洗后的文本）
+        result["key_actors"] = cls.extract_key_actors(analysis_text, evidence_type)
 
         return result
 
@@ -154,8 +187,9 @@ class EvidenceAnalyzer:
         Returns:
             主观明知证据
         """
-        matches = keyword_library.search(text)
-        score_result = ScoreService.analyze_text(text)
+        analysis_text = cls._extract_text_for_analysis(text)
+        matches = keyword_library.search(analysis_text)
+        score_result = ScoreService.analyze_text(analysis_text)
 
         # 按类别分组命中关键词
         category_hits = {}
@@ -301,7 +335,8 @@ class EvidenceAnalyzer:
             高亮后的文本（HTML格式）
         """
         if keywords is None:
-            matches = keyword_library.search(text)
+            analysis_text = cls._extract_text_for_analysis(text)
+            matches = keyword_library.search(analysis_text)
             keywords = [m["word"] for m in matches]
 
         result = text

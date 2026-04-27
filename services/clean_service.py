@@ -188,10 +188,16 @@ class CleanService:
         cls,
         transactions: List[Dict[str, Any]],
         communications: List[Dict[str, Any]],
+        window_minutes: int = 30,
     ) -> List[Dict[str, Any]]:
         """
         分析转账前的联络行为
         比对通讯记录时间，看是否在转账前有联系
+
+        Args:
+            transactions: 交易记录
+            communications: 通讯记录
+            window_minutes: 联络窗口（分钟），默认30分钟
         """
         results = []
 
@@ -214,8 +220,7 @@ class CleanService:
 
                 if is_relevant and comm_time:
                     time_diff = (trans_time - comm_time).total_seconds() / 60
-                    # 转账前10分钟内有过联络
-                    if 0 < time_diff <= 10:
+                    if 0 < time_diff <= window_minutes:
                         results.append(
                             {
                                 "transaction_time": trans_time,

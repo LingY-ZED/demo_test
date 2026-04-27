@@ -134,12 +134,13 @@ class UploadService:
 
     @classmethod
     def parse_communications(cls, file_path: str, case_id: int) -> List[Dict[str, Any]]:
-        """解析通讯记录文件"""
-        records = []
+        """解析通讯记录文件（自动检测格式）"""
         suffix = Path(file_path).suffix.lower()
 
         if suffix in [".xlsx", ".xls"]:
             records = cls._parse_excel_communications(file_path, case_id)
+        elif cls._detect_wechat_format(file_path):
+            records = cls._parse_wechat_communications(file_path, case_id)
         else:
             records = cls._parse_csv_communications(file_path, case_id)
 
@@ -215,6 +216,56 @@ class UploadService:
             except Exception as e:
                 print(f"解析Excel通讯记录行失败: {e}")
         return records
+
+    @staticmethod
+    def _detect_wechat_format(file_path: str) -> bool:
+        """检测 CSV 文件是否为微信导出格式"""
+        suffix = Path(file_path).suffix.lower()
+        if suffix not in (".csv", ".txt"):
+            return False
+        try:
+            with open(file_path, encoding=UploadService.ENCODING) as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                if headers is None:
+                    return False
+                from services.wechat_parser import detect_wechat_format
+                return detect_wechat_format(headers)
+        except Exception:
+            return False
+
+    @classmethod
+    def _parse_wechat_communications(
+        cls, file_path: str, case_id: int
+    ) -> List[Dict[str, Any]]:
+        """解析微信 CSV 格式的通讯记录"""
+        from services.wechat_parser import parse_wechat_csv
+
+        parsed = parse_wechat_csv(file_path)
+        records = []
+
+        for comm in parsed.get("communications", []):
+            record = {
+                "case_id": case_id,
+                "communication_time": comm.get("communication_time"),
+                "initiator": comm.get("initiator", ""),
+                "receiver": comm.get("receiver", ""),
+                "content": comm.get("content"),
+                "media_type": comm.get("media_type"),
+                "is_deleted": comm.get("is_deleted", False),
+                "raw_content": comm.get("raw_content"),
+            }
+            records.append(record)
+
+        # 将提取的转账记录附加到返回值（upload 端点会读取）
+        cls._wechat_transactions = parsed.get("transactions", [])
+
+        return records
+
+    @classmethod
+    def get_wechat_transactions(cls) -> List[Dict[str, Any]]:
+        """获取微信解析过程中提取的转账记录"""
+        return getattr(cls, "_wechat_transactions", [])
 
     @classmethod
     def parse_logistics(cls, file_path: str, case_id: int) -> List[Dict[str, Any]]:

@@ -66,6 +66,9 @@ class Communication(BaseModel):
     initiator = CharField(max_length=100, verbose_name="发起方")
     receiver = CharField(max_length=100, verbose_name="接收方")
     content = TextField(null=True, verbose_name="聊天内容")
+    media_type = CharField(max_length=20, null=True, verbose_name="消息类型")
+    is_deleted = BooleanField(default=False, verbose_name="是否已删除")
+    raw_content = TextField(null=True, verbose_name="原始内容")
 
     class Meta:
         table_name = "communications"
@@ -111,8 +114,24 @@ def init_db():
     db.create_tables(
         [Case, Person, Transaction, Communication, Logistics, SuspiciousClue]
     )
+    _migrate_communications()
     db.close()
     print("数据库初始化完成")
+
+
+def _migrate_communications():
+    """为已有 communications 表添加新字段（幂等）"""
+    new_columns = {
+        "media_type": "VARCHAR(20)",
+        "is_deleted": "INTEGER DEFAULT 0",
+        "raw_content": "TEXT",
+    }
+    existing = {col.name for col in db.get_columns("communications")}
+    for col_name, col_def in new_columns.items():
+        if col_name not in existing:
+            db.execute_sql(
+                f"ALTER TABLE communications ADD COLUMN {col_name} {col_def}"
+            )
 
 
 if __name__ == "__main__":
