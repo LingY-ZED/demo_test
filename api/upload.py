@@ -12,6 +12,7 @@ import os
 from services.upload_service import UploadService, TableFormatError
 from services.clean_service import CleanService
 from services.case_service import CaseService
+from services.suspicion_detector import SuspicionDetector
 from models.database import Case
 
 router = APIRouter(prefix="/api/upload", tags=["数据导入"])
@@ -84,6 +85,14 @@ async def upload_transactions(
         inferred_fields = CaseService.auto_update_inferred_fields(case.id)
         person_sync = CaseService.sync_case_persons_to_db(case.id)
 
+        # 自动检测可疑线索
+        clue_results = SuspicionDetector.detect_all(case.id)
+        total_clues = (
+            len(clue_results["suspicion_clues"])
+            + len(clue_results["price_clues"])
+            + len(clue_results["role_clues"])
+        )
+
         return {
             "success": True,
             "message": f"成功导入{saved_count}条资金流水",
@@ -97,6 +106,7 @@ async def upload_transactions(
             "person_sync": person_sync,
             "total_records": len(records),
             "saved_records": saved_count,
+            "clues_generated": total_clues,
         }
     except TableFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -196,6 +206,14 @@ async def upload_communications(
         if txn_saved > 0:
             recalculated_amount = CaseService.recalculate_case_amount(case.id)
 
+        # 自动检测可疑线索
+        clue_results = SuspicionDetector.detect_all(case.id)
+        total_clues = (
+            len(clue_results["suspicion_clues"])
+            + len(clue_results["price_clues"])
+            + len(clue_results["role_clues"])
+        )
+
         result = {
             "success": True,
             "message": f"成功导入{saved_count}条通讯记录",
@@ -208,6 +226,7 @@ async def upload_communications(
             "person_sync": person_sync,
             "total_records": len(records),
             "saved_records": saved_count,
+            "clues_generated": total_clues,
         }
         if is_wechat:
             result["format_detected"] = "wechat"
@@ -290,6 +309,14 @@ async def upload_logistics(
         inferred_fields = CaseService.auto_update_inferred_fields(case.id)
         person_sync = CaseService.sync_case_persons_to_db(case.id)
 
+        # 自动检测可疑线索
+        clue_results = SuspicionDetector.detect_all(case.id)
+        total_clues = (
+            len(clue_results["suspicion_clues"])
+            + len(clue_results["price_clues"])
+            + len(clue_results["role_clues"])
+        )
+
         return {
             "success": True,
             "message": f"成功导入{saved_count}条物流记录",
@@ -302,6 +329,7 @@ async def upload_logistics(
             "person_sync": person_sync,
             "total_records": len(records),
             "saved_records": saved_count,
+            "clues_generated": total_clues,
         }
     except TableFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -290,6 +290,24 @@ class SuspicionDetector:
         Returns:
             创建的线索字典
         """
+        # 去重：同案件、同类型、同证据文本视为重复
+        existing = SuspiciousClue.get_or_none(
+            (SuspiciousClue.case_id == case_id)
+            & (SuspiciousClue.clue_type == clue_type)
+            & (SuspiciousClue.evidence_text == evidence_text)
+        )
+        if existing:
+            return {
+                "id": existing.id,
+                "case_id": existing.case_id,
+                "clue_type": existing.clue_type,
+                "evidence_text": existing.evidence_text,
+                "hit_keywords": hit_keywords,
+                "score": existing.score,
+                "crime_type": existing.crime_type,
+                "severity_level": existing.severity_level,
+            }
+
         clue = SuspiciousClue.create(
             case_id=case_id,
             clue_type=clue_type,
