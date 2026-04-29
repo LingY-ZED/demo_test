@@ -173,7 +173,7 @@ async def upload_communications(
         for record in cleaned_records:
             Communication.create(
                 case=case,
-                communication_time=record.get("communication_time", datetime.now()),
+                communication_time=record.get("communication_time") or datetime.now(),
                 initiator=record.get("initiator", ""),
                 receiver=record.get("receiver", ""),
                 content=record.get("content"),

@@ -196,6 +196,8 @@ def parse_wechat_csv(file_path: str) -> Dict[str, Any]:
         is_delete_str = row.get("isDelete", "").strip()
 
         comm_time = _parse_datetime(time_str)
+        if comm_time is None:
+            continue
         name = sender_name or sender
         is_deleted = is_delete_str == "是"
 
