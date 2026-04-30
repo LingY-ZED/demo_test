@@ -361,28 +361,39 @@ class UploadService:
         return records
 
     @staticmethod
-    def _parse_datetime(value: str) -> datetime:
-        """解析日期时间"""
+    def _parse_datetime(value) -> datetime:
+        """解析日期时间（兼容 Excel 日期单元格与 CSV 字符串）"""
         if not value:
             return datetime.now()
+        # Excel 单元格可能已经是 datetime/date 对象
+        if isinstance(value, datetime):
+            return value
+        from datetime import date as date_type
+        if isinstance(value, date_type):
+            return datetime.combine(value, datetime.min.time())
         formats = [
+            "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d %H:%M",
             "%Y-%m-%d",
+            "%Y/%m/%d %H:%M:%S",
             "%Y/%m/%d %H:%M",
             "%Y/%m/%d",
         ]
+        text = str(value).strip()
         for fmt in formats:
             try:
-                return datetime.strptime(str(value).strip(), fmt)
+                return datetime.strptime(text, fmt)
             except ValueError:
                 continue
         return datetime.now()
 
     @staticmethod
-    def _parse_decimal(value: str) -> Decimal:
-        """解析Decimal"""
-        if not value:
+    def _parse_decimal(value) -> Decimal:
+        """解析Decimal（兼容 Excel 数字单元格与 CSV 字符串）"""
+        if value is None or value == "":
             return Decimal("0")
+        if isinstance(value, (int, float)):
+            return Decimal(str(value))
         try:
             return Decimal(str(value).replace(",", "").strip())
         except Exception:

@@ -1,5 +1,53 @@
 # 后端修改记录 (Backend Modification Records)
 
+## 日期: 2026-04-30
+
+### 1. 上传接口自动触发可疑线索检测 (`api/upload.py`, `services/suspicion_detector.py`)
+- **问题**: 可疑线索仅能通过 `GET /api/cases/{id}/suspicious` 手动触发，数据导入后线索表始终为空。
+- **修复**:
+  - 在三个上传接口（transactions/communications/logistics）保存数据后自动调用 `SuspicionDetector.detect_all(case_id)`。
+  - `create_suspicious_clue()` 增加去重逻辑：按 `(case_id, clue_type, evidence_text)` 判重，重复线索不重复插入。
+- **前端对接影响**:
+  - 导入成功响应新增字段 `clues_generated`: 本次导入新生成的线索总数（number）。
+  - 前端可在导入完成后直接刷新线索视图，无需额外触发检测。
+
+### 2. 微信 CSV 导入空时间戳修复 (`services/wechat_parser.py`, `api/upload.py`)
+- **问题**: 微信导出的系统消息（`mediaType=其他`）的 `time` 字段为空，导致插入数据库时报 `NOT NULL constraint failed: communications.communication_time`。
+- **修复**:
+  - `wechat_parser.py`: 解析时跳过 `_parse_datetime` 返回 `None` 的行（`if comm_time is None: continue`）。
+  - `upload.py`: 通讯记录保存时增加兜底 `record.get("communication_time") or datetime.now()`。
+- **前端对接影响**: 无，兼容性修复。
+
+### 3. Excel 解析日期/数字类型兼容 (`services/upload_service.py`)
+- **问题**: `openpyxl` 读取 Excel 日期单元格返回 `datetime` 对象、数字单元格返回 `int/float`，原 `str()` 包裹可能导致日期格式不匹配或精度丢失。
+- **修复**:
+  - `_parse_datetime`: 增加 `datetime`/`date` 对象直接返回分支，追加 `%Y-%m-%d %H:%M:%S` 格式支持。
+  - `_parse_decimal`: 增加 `int/float` 数字类型直接转换分支。
+- **前端对接影响**: 无，XLSX 上传解析更稳定。
+
+### 4. 标准导入模板下载接口 (`api/upload.py`)
+- **功能**: 提供 3 个 GET 端点下载标准 XLSX 模板，方便用户按模板填充数据后上传。
+- **新增端点**:
+
+  | 端点 | 下载文件名 | 模板列 |
+  |---|---|---|
+  | `GET /api/upload/template/transactions` | 资金流水导入模板.xlsx | 交易发生时间, 打款方 (账号/姓名), 收款方 (账号/姓名), 交易金额 (元), 支付方式, 交易备注 / 转账留言 |
+  | `GET /api/upload/template/communications` | 通讯记录导入模板.xlsx | 联络时间, 发起方 (微信号/姓名), 接收方 (微信号/姓名), 聊天内容 |
+  | `GET /api/upload/template/logistics` | 物流记录导入模板.xlsx | 发货时间, 快递单号, 发件人/网点, 收件人/地址, 寄件物品描述, 包裹重量(公斤) |
+
+- **模板特性**:
+  - 第 1 行：加粗表头（与解析器必填列校验完全一致）。
+  - 第 2~3 行：示例数据（展示填写格式）。
+  - 自适应列宽，可直接用于上传。
+- **前端对接建议**:
+  - 在导入页面增加"下载模板"按钮，调用对应端点下载。
+  - 响应为 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`，前端可用 `window.open` 或 `<a download>` 触发下载。
+
+### 5. 附带修复
+- **上传端点 `case_no` 分支 `UnboundLocalError`**：删除了函数体内冗余的 `from models.database import Case`（顶层已导入），修复通过 `case_no` 参数上传时报错的问题。
+
+---
+
 ## 日期: 2026-04-23
 
 ### 1. 数据一致性修复：删除案件时级联删除已生效 (`models/database.py`)

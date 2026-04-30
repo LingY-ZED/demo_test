@@ -3,11 +3,17 @@
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi.responses import StreamingResponse
 from typing import Optional
 import pandas as pd
 from datetime import datetime
 import tempfile
 import os
+import io
+from urllib.parse import quote
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
 
 from services.upload_service import UploadService, TableFormatError
 from services.clean_service import CleanService
@@ -41,8 +47,6 @@ async def upload_transactions(
     # 获取案件
     case = None
     if case_id:
-        from models.database import Case
-
         case = Case.get_or_none(Case.id == case_id)
     elif case_no:
         case = Case.get_or_none(Case.case_no == case_no)
@@ -340,5 +344,122 @@ async def upload_logistics(
             os.unlink(temp_path)
 
 
-# 需要导入io模块
-import io
+def _generate_template_xlsx(headers: list, sample_rows: list, sheet_title: str) -> io.BytesIO:
+    """生成标准导入模板 XLSX 文件"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title
+
+    header_font = Font(bold=True, size=11)
+    header_align = Alignment(horizontal="center", vertical="center")
+
+    # 写入表头
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.alignment = header_align
+
+    # 写入示例数据行
+    for row_idx, row_data in enumerate(sample_rows, 2):
+        for col_idx, value in enumerate(row_data, 1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+
+    # 自适应列宽
+    for col_idx, header in enumerate(headers, 1):
+        max_width = len(header) * 2  # 中文字符约占 2 个英文字符宽度
+        for row_data in sample_rows:
+            cell_text = str(row_data[col_idx - 1]) if col_idx - 1 < len(row_data) else ""
+            max_width = max(max_width, len(cell_text) * 2)
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_width + 4, 50)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
+# 模板定义
+_TEMPLATE_DEFS = {
+    "transactions": {
+        "filename": "资金流水导入模板.xlsx",
+        "sheet_title": "资金流水",
+        "headers": [
+            "交易发生时间",
+            "打款方 (账号/姓名)",
+            "收款方 (账号/姓名)",
+            "交易金额 (元)",
+            "支付方式",
+            "交易备注 / 转账留言",
+        ],
+        "sample_rows": [
+            ["2026-01-01 10:00", "张三", "李四", "50000.00", "银行卡", "货款"],
+            ["2026-01-02 14:30", "王五", "赵六", "12000.00", "微信", "订金"],
+        ],
+    },
+    "communications": {
+        "filename": "通讯记录导入模板.xlsx",
+        "sheet_title": "通讯记录",
+        "headers": [
+            "联络时间",
+            "发起方 (微信号/姓名)",
+            "接收方 (微信号/姓名)",
+            "聊天内容",
+        ],
+        "sample_rows": [
+            ["2026-01-01 10:00", "张三", "李四", "货收到了吗"],
+            ["2026-01-01 10:05", "李四", "张三", "收到了，质量不错"],
+        ],
+    },
+    "logistics": {
+        "filename": "物流记录导入模板.xlsx",
+        "sheet_title": "物流记录",
+        "headers": [
+            "发货时间",
+            "快递单号",
+            "发件人/网点",
+            "收件人/地址",
+            "寄件物品描述",
+            "包裹重量(公斤)",
+        ],
+        "sample_rows": [
+            ["2026-01-01 10:00", "SF123456", "张三 (东莞某工业区)", "李四 (杭州余杭某村)", "汽车配件/大灯", "8.0"],
+            ["2026-01-02 14:00", "YT789012", "王五 (广州白云)", "赵六 (长沙)", "机油", "45.0"],
+        ],
+    },
+}
+
+
+@router.get("/template/transactions")
+async def download_transactions_template():
+    """下载资金流水导入模板"""
+    tpl = _TEMPLATE_DEFS["transactions"]
+    xlsx = _generate_template_xlsx(tpl["headers"], tpl["sample_rows"], tpl["sheet_title"])
+    return StreamingResponse(
+        xlsx,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(tpl['filename'])}"},
+    )
+
+
+@router.get("/template/communications")
+async def download_communications_template():
+    """下载通讯记录导入模板"""
+    tpl = _TEMPLATE_DEFS["communications"]
+    xlsx = _generate_template_xlsx(tpl["headers"], tpl["sample_rows"], tpl["sheet_title"])
+    return StreamingResponse(
+        xlsx,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(tpl['filename'])}"},
+    )
+
+
+@router.get("/template/logistics")
+async def download_logistics_template():
+    """下载物流记录导入模板"""
+    tpl = _TEMPLATE_DEFS["logistics"]
+    xlsx = _generate_template_xlsx(tpl["headers"], tpl["sample_rows"], tpl["sheet_title"])
+    return StreamingResponse(
+        xlsx,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(tpl['filename'])}"},
+    )
