@@ -43,6 +43,29 @@
   - 在导入页面增加"下载模板"按钮，调用对应端点下载。
   - 响应为 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`，前端可用 `window.open` 或 `<a download>` 触发下载。
 
+### 6. 交易 × 通讯交叉比对，标记异常交易 (`services/transaction_cross_validator.py`, `api/analyze.py`, `api/upload.py`, `services/evidence_analyzer.py`)
+- **功能**: 从时间和金额两个维度比对资金流水与聊天记录，自动标记三种异常交易。
+- **三种异常类型**:
+
+  | 异常类型 | 检测逻辑 | 评分 |
+  |---|---|---|
+  | 金额不符 | 聊天提及金额与实际交易金额偏差 >20% 且差额 >500 元 | 7（民事侵权） |
+  | 无沟通大额交易 | 金额 >= 5 万且前后 1 小时内无相关聊天记录 | 5（民事侵权） |
+  | 聊天提及无对应交易 | 聊天讨论了付款但时间窗口内无匹配交易 | 5（民事侵权） |
+
+- **金额提取增强**:
+  - 扩展阿拉伯数字正则：新增 `块/亿` 单位 + `转账/打款/付款/汇款` 上下文模式
+  - 新增中文数字解析：支持"三万"/"十二万"/"五百"等中文数字金额
+  - 修复"50套"等数量词被误识别为金额的问题
+- **新增端点**: `POST /api/analyze/cross-validate/{case_id}?window_minutes=60`
+  - 手动触发交叉比对，返回异常列表
+- **自动触发**: 三个上传端点导入数据后自动调用交叉比对，响应新增 `cross_anomalies` 字段
+- **去重**: 按 `(case_id, clue_type="交易异常", evidence_text)` 判重，重复导入不产生重复线索
+- **前端对接影响**:
+  - `EvidenceListPage` 筛选 `clue_type="交易异常"` 即可展示交叉比对异常
+  - 上传成功响应新增字段 `cross_anomalies`（本次导入新发现的异常数）
+  - 调用 `POST /api/analyze/cross-validate/{case_id}` 可手动触发刷新
+
 ### 5. 附带修复
 - **上传端点 `case_no` 分支 `UnboundLocalError`**：删除了函数体内冗余的 `from models.database import Case`（顶层已导入），修复通过 `case_no` 参数上传时报错的问题。
 

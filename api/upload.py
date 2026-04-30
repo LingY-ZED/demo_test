@@ -19,6 +19,7 @@ from services.upload_service import UploadService, TableFormatError
 from services.clean_service import CleanService
 from services.case_service import CaseService
 from services.suspicion_detector import SuspicionDetector
+from services.transaction_cross_validator import TransactionCrossValidator
 from models.database import Case
 
 router = APIRouter(prefix="/api/upload", tags=["数据导入"])
@@ -97,6 +98,9 @@ async def upload_transactions(
             + len(clue_results["role_clues"])
         )
 
+        # 交易 × 通讯交叉比对
+        cross_results = TransactionCrossValidator.validate(case.id)
+
         return {
             "success": True,
             "message": f"成功导入{saved_count}条资金流水",
@@ -111,6 +115,7 @@ async def upload_transactions(
             "total_records": len(records),
             "saved_records": saved_count,
             "clues_generated": total_clues,
+            "cross_anomalies": len(cross_results),
         }
     except TableFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -218,6 +223,9 @@ async def upload_communications(
             + len(clue_results["role_clues"])
         )
 
+        # 交易 × 通讯交叉比对
+        cross_results = TransactionCrossValidator.validate(case.id)
+
         result = {
             "success": True,
             "message": f"成功导入{saved_count}条通讯记录",
@@ -231,6 +239,7 @@ async def upload_communications(
             "total_records": len(records),
             "saved_records": saved_count,
             "clues_generated": total_clues,
+            "cross_anomalies": len(cross_results),
         }
         if is_wechat:
             result["format_detected"] = "wechat"
@@ -321,6 +330,9 @@ async def upload_logistics(
             + len(clue_results["role_clues"])
         )
 
+        # 交易 × 通讯交叉比对
+        cross_results = TransactionCrossValidator.validate(case.id)
+
         return {
             "success": True,
             "message": f"成功导入{saved_count}条物流记录",
@@ -334,6 +346,7 @@ async def upload_logistics(
             "total_records": len(records),
             "saved_records": saved_count,
             "clues_generated": total_clues,
+            "cross_anomalies": len(cross_results),
         }
     except TableFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))

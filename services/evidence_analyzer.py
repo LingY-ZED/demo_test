@@ -142,36 +142,51 @@ class EvidenceAnalyzer:
     @classmethod
     def extract_prices(cls, text: str) -> List[float]:
         """
-        从文本中提取价格
+        从文本中提取价格（金额）
 
-        Args:
-            text: 文本内容
-
-        Returns:
-            价格列表
+        支持格式：元/块/万/千/亿，¥前缀，转账/打款/付款/汇款上下文
+        只提取明确含货币语义的数字，避免误匹配数量（如"50套"）
         """
-        # 匹配各种价格格式
+        prices = []
+        seen = set()
+
+        # 每条规则必须包含显式的货币单位或上下文，避免误匹配
         patterns = [
-            r'(\d+(?:\.\d{1,2})?)\s*元',
+            # ¥ 前缀
             r'¥\s*(\d+(?:\.\d{1,2})?)',
+            # 转账/打款/付款/汇款 + 金额
+            r'(?:转账|打款|付款|汇款)\s*(\d+(?:\.\d{1,2})?)',
+            # 价格是/为/： + 金额
             r'价格[是为：:]\s*(\d+(?:\.\d{1,2})?)',
-            r'(\d+(?:\.\d{1,2})?)\s*万',
-            r'(\d+(?:\.\d{1,2})?)\s*千',
+            # 金额 + 万/千/百 单位
+            r'(\d+(?:\.\d{1,2})?)\s*[万千百]',
+            # 金额 + 元/块 货币后缀
+            r'(\d+(?:\.\d{1,2})?)\s*[元块]',
         ]
 
-        prices = []
         for pattern in patterns:
-            matches = re.findall(pattern, text)
-            for match in matches:
-                price = float(match)
-                # 处理"万"和"千"
-                if '万' in text[text.find(match)-1:text.find(match)+2]:
-                    price *= 10000
-                elif '千' in text[text.find(match)-1:text.find(match)+2]:
-                    price *= 1000
-                prices.append(price)
+            for m in re.finditer(pattern, text):
+                try:
+                    price = float(m.group(1))
+                except (ValueError, IndexError):
+                    continue
 
-        return prices
+                # 检测单位：万→×10000, 千→×1000
+                ctx_end = min(m.end(), len(text))
+                suffix = text[m.end():ctx_end + 2].strip()
+                if '亿' in suffix:
+                    price *= 100000000
+                elif '万' in suffix:
+                    price *= 10000
+                elif '千' in suffix:
+                    price *= 1000
+
+                key = round(price, 2)
+                if key not in seen:
+                    seen.add(key)
+                    prices.append(price)
+
+        return sorted(prices, reverse=True)
 
     @classmethod
     def extract_subjective_knowledge_evidence(
