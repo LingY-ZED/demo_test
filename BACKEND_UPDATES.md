@@ -1,5 +1,26 @@
 # 后端修改记录 (Backend Modification Records)
 
+## 日期: 2026-05-02
+
+### 1. 三个上传接口合并为统一端点，自动识别数据类型 (`api/upload.py`)
+- **问题**: 三个上传端点（`/transactions`、`/communications`、`/logistics`）约 90% 代码重复，且用户上传前必须明确选择类型。
+- **修复**:
+  - 新增 `POST /api/upload/data` 统一端点，根据文件表头自动识别类型，无需前端传 `type` 参数。
+  - 自动检测顺序：微信特征列 → 资金流水列 → 通讯记录列 → 物流记录列。
+  - 无法识别时返回 `400` 并提示"无法识别文件类型，请检查列名是否与模板一致"。
+  - 提取 `_handle_upload(file, case_id, case_no, forced_type=None)` 核心函数，三个旧端点改为委托调用，保证前端兼容。
+  - 提取 `_save_transactions`、`_save_communications`、`_save_logistics` 三个保存函数，微信嵌入转账提取逻辑内聚在 `_save_communications` 中。
+- **旧端点兼容**:
+  - `POST /api/upload/transactions`、`/communications`、`/logistics` 仍然可用，内部委托到 `_handle_upload(forced_type=...)`。
+  - `GET /api/upload/template/{type}` 新增统一模板下载端点，旧三个路径保留兼容包装。
+- **前端对接影响**:
+  - 旧端点路径不变，前端无需任何改动。
+  - 新端点 `POST /api/upload/data` 可直接使用，无需传 `type` 字段。
+  - 响应新增 `data_type` 字段（`"transactions"` / `"communications"` / `"logistics"`），标识识别结果。
+  - 前端后续可切换到新端点，减少 `mapUploadPath()` 的类型映射逻辑。
+
+---
+
 ## 日期: 2026-04-30
 
 ### 1. 上传接口自动触发可疑线索检测 (`api/upload.py`, `services/suspicion_detector.py`)

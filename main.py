@@ -31,11 +31,19 @@ AUTH_EXEMPT_PATHS = {
     "/",
 }
 
+AUTH_EXEMPT_PREFIXES = [
+    "/docs/",
+    "/redoc/",
+    "/api/upload/template/",
+    "/api/report/download/",
+    "/api/export/csv",
+]
+
 
 def _is_auth_exempt_path(path: str) -> bool:
     if path in AUTH_EXEMPT_PATHS:
         return True
-    return path.startswith("/docs/") or path.startswith("/redoc/")
+    return any(path.startswith(prefix) for prefix in AUTH_EXEMPT_PREFIXES)
 
 
 def _parse_basic_auth(authorization: str):
