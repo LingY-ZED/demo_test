@@ -8,6 +8,7 @@ import secrets
 
 from config.settings import settings
 from models.database import init_db
+from api.auth import decode_access_token
 
 # 配置日志
 logging.basicConfig(
@@ -37,6 +38,7 @@ AUTH_EXEMPT_PREFIXES = [
     "/api/upload/template/",
     "/api/report/download/",
     "/api/export/csv",
+    "/api/auth/login",
 ]
 
 
@@ -61,8 +63,26 @@ def _parse_basic_auth(authorization: str):
     return decoded.split(":", 1)
 
 
+def _parse_bearer_auth(authorization: str):
+    """解析并验证 JWT Bearer token，成功返回 payload，失败返回 None"""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    return decode_access_token(token)
+
+
 def _is_authorized(request: Request) -> bool:
-    creds = _parse_basic_auth(request.headers.get("Authorization", ""))
+    auth_header = request.headers.get("Authorization", "")
+
+    # Bearer JWT — 业界标准方式
+    bearer_payload = _parse_bearer_auth(auth_header)
+    if bearer_payload:
+        return True
+
+    # Basic Auth — 向后兼容旧前端
+    creds = _parse_basic_auth(auth_header)
     if not creds:
         return False
     username, password = creds
@@ -130,6 +150,7 @@ from api.relations import router as relations_router
 from api.ledger import router as ledger_router
 from api.export import router as export_router
 from api.report import router as report_router
+from api.auth import router as auth_router
 
 app.include_router(upload_router)
 app.include_router(cases_router)
@@ -139,6 +160,7 @@ app.include_router(relations_router)
 app.include_router(ledger_router)
 app.include_router(export_router)
 app.include_router(report_router)
+app.include_router(auth_router)
 
 
 @app.get("/")

@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     auth_username: str = "admin"
     auth_password: str = "change-this-password"
 
+    # JWT 鉴权（方案二，与 Basic Auth 并行的业界标准）
+    jwt_secret_key: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 480  # 8小时
+
     # 数据库配置
     database_path: Path = BASE_DIR / "data" / "intellectual_property.db"
 

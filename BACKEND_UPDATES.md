@@ -19,6 +19,22 @@
   - 响应新增 `data_type` 字段（`"transactions"` / `"communications"` / `"logistics"`），标识识别结果。
   - 前端后续可切换到新端点，减少 `mapUploadPath()` 的类型映射逻辑。
 
+### 2. 鉴权升级：Basic Auth → JWT Bearer Token (`main.py`, `api/auth.py`, `config/settings.py`)
+- **问题**: HTTP Basic Auth 是 Base64 编码（等同于明文），缺乏 token 过期和签名验证机制，不符合业界安全标准。
+- **修复**:
+  - 新增 `PyJWT==2.8.0` 依赖，纯 Python 实现无 C 依赖。
+  - 新增 JWT 配置项：`jwt_secret_key`、`jwt_algorithm=HS256`、`jwt_expire_minutes=480`（8 小时）。
+  - 新建 `api/auth.py`，提供两个端点：
+    - `POST /api/auth/login` — 接收 `{username, password}`，返回 `{access_token, token_type, expires_in}`。
+    - `GET /api/auth/status` — 返回当前 token 的用户名和剩余有效期。
+  - `main.py` 中间件同时接受两种 Authorization 头：
+    - `Bearer <jwt>` — JWT 签名 + 过期验证（新标准）。
+    - `Basic <base64>` — 原有逻辑（向后兼容）。
+  - 白名单新增 `/api/auth/login`。
+- **前端对接影响**:
+  - **零改动**：旧 Basic Auth 继续被接受，前端无需任何修改。
+  - 后续可选迁移：前端切换到 `POST /api/auth/login` 获取 token，client.ts 改为发 `Bearer` 头即可。
+
 ---
 
 ## 日期: 2026-04-30
