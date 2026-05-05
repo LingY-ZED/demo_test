@@ -8,6 +8,7 @@ from datetime import datetime
 from models.database import Case, SuspiciousClue, Communication
 from services.score_service import ScoreService
 from services.role_detector import RoleDetector
+from services.evidence_analyzer import EvidenceAnalyzer
 from utils.keywords import keyword_library
 
 
@@ -69,7 +70,7 @@ class SuspicionDetector:
             # 获取涉嫌罪名
             crime_type = ScoreService.get_crime_type(matches)
 
-            # 创建线索记录
+            # 创建主观明知线索记录
             clue = cls.create_suspicious_clue(
                 case_id=case_id,
                 clue_type="主观明知",
@@ -80,6 +81,23 @@ class SuspicionDetector:
                 severity_level=severity,
             )
             clues.append(clue)
+
+            # 从通讯内容中检测价格异常（与证据解析保持一致）
+            price_result = EvidenceAnalyzer.analyze_price_anomaly(content)
+            if price_result["has_anomaly"]:
+                price_clue = cls.create_suspicious_clue(
+                    case_id=case_id,
+                    clue_type="价格异常",
+                    evidence_text=(
+                        f"聊天提及价格：{price_result['quoted_price']:.0f}元，"
+                        f"参考价：{price_result['reference_price']:.0f}元"
+                    ),
+                    hit_keywords=[m["word"] for m in matches],
+                    score=3,
+                    crime_type=crime_type,
+                    severity_level="行政违法",
+                )
+                clues.append(price_clue)
 
         return clues
 
@@ -116,33 +134,50 @@ class SuspicionDetector:
                 for t in trans
             ]
 
+        # 价格异常阈值：低于正常价 50%
+        PRICE_ANOMALY_RATIO = 0.5
+
         clues = []
         for trans in transactions:
             remark = trans.get("remark", "") or ""
             amount = float(trans.get("amount", 0))
 
-            # 从备注中提取产品信息
+            if amount <= 0:
+                continue
+
+            # 从备注中提取品牌/产品
             matches = keyword_library.search(remark)
             brands = keyword_library.search_brands(remark)
 
-            if not matches and not brands:
-                continue
+            # 确定参考价格
+            is_anomaly = False
+            anomaly_ratio = None
+            ref_price = None
 
-            # 检查价格异常（如果提供了参考价）
             if reference_prices:
-                brand = brands[0] if brands else "Unknown"
-                ref_price = reference_prices.get(brand, amount * 2)
-                if amount < ref_price * 0.5:  # 价格低于参考价50%
-                    clue = cls.create_suspicious_clue(
-                        case_id=case_id,
-                        clue_type="价格异常",
-                        evidence_text=f"交易金额：{amount}元，备注：{remark}",
-                        hit_keywords=list(set([m["word"] for m in matches] + brands)),
-                        score=3,  # 价格异常固定+3分
-                        crime_type="待定",
-                        severity_level="行政违法",
-                    )
-                    clues.append(clue)
+                brand = brands[0] if brands else None
+                if brand and brand in reference_prices:
+                    ref_price = reference_prices[brand]
+                    anomaly_ratio = amount / ref_price if ref_price > 0 else 1
+                    is_anomaly = anomaly_ratio < PRICE_ANOMALY_RATIO
+            else:
+                # 无参考价时用通用启发式：正品约为售价 2.5 倍
+                ref_price = amount * 2.5
+                anomaly_ratio = amount / ref_price  # ≈ 0.4
+                is_anomaly = bool(brands or matches) and anomaly_ratio < PRICE_ANOMALY_RATIO
+
+            if is_anomaly:
+                remark_suffix = f"，备注：{remark}" if remark else ""
+                clue = cls.create_suspicious_clue(
+                    case_id=case_id,
+                    clue_type="价格异常",
+                    evidence_text=f"交易金额：{amount}元，参考价：{ref_price:.0f}元{remark_suffix}",
+                    hit_keywords=list(set([m["word"] for m in matches] + brands)),
+                    score=3,
+                    crime_type="待定",
+                    severity_level="行政违法",
+                )
+                clues.append(clue)
 
         return clues
 
@@ -254,13 +289,16 @@ class SuspicionDetector:
         ]
 
         # 执行各类检测
-        suspicion_clues = cls.detect_from_communication(case_id, communications)
-        price_clues = cls.detect_price_anomaly(case_id, transactions)
+        all_comm_clues = cls.detect_from_communication(case_id, communications)
+        # 分离通讯中的价格异常线索
+        comm_suspicion = [c for c in all_comm_clues if c.get("clue_type") != "价格异常"]
+        comm_price = [c for c in all_comm_clues if c.get("clue_type") == "价格异常"]
+        txn_price_clues = cls.detect_price_anomaly(case_id, transactions)
         role_clues = cls.detect_role_anomaly(case_id, transactions, logistics, communications)
 
         return {
-            "suspicion_clues": suspicion_clues,
-            "price_clues": price_clues,
+            "suspicion_clues": comm_suspicion,
+            "price_clues": comm_price + txn_price_clues,
             "role_clues": role_clues,
         }
 

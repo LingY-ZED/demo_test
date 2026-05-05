@@ -6,7 +6,6 @@ from typing import Dict, List, Any, Optional, Tuple
 import re
 
 from services.score_service import ScoreService
-from services.role_detector import RoleDetector
 from utils.keywords import keyword_library
 
 
@@ -92,9 +91,6 @@ class EvidenceAnalyzer:
                 "categories": score_result["category_counts"],
                 "crime_type": ScoreService.get_crime_type(score_result["matches"]),
             }
-
-        # 关键主体提取（使用清洗后的文本）
-        result["key_actors"] = cls.extract_key_actors(analysis_text, evidence_type)
 
         return result
 
@@ -226,54 +222,6 @@ class EvidenceAnalyzer:
             "category_hits": category_hits,
             "crime_type": ScoreService.get_crime_type(matches),
         }
-
-    @classmethod
-    def extract_key_actors(
-        cls,
-        text: str,
-        evidence_type: str = "communication"
-    ) -> List[Dict[str, Any]]:
-        """
-        提取关键主体
-
-        Args:
-            text: 文本内容
-            evidence_type: 证据类型
-
-        Returns:
-            关键主体列表
-        """
-        actors = []
-
-        # 提取人名（简单实现，实际可用NER）
-        # 这里假设文本中包含"甲方"等称呼
-        name_patterns = [
-            r'([\u4e00-\u9fa5]{2,4})说',
-            r'([\u4e00-\u9fa5]{2,4})表示',
-            r'跟([\u4e00-\u9fa5]{2,4})',
-            r'和([\u4e00-\u9fa5]{2,4})',
-            r'([\u4e00-\u9fa5]{2,4})要货',
-            r'([\u4e00-\u9fa5]{2,4})拿货',
-        ]
-
-        names = set()
-        for pattern in name_patterns:
-            matches = re.findall(pattern, text)
-            names.update(matches)
-
-        # 提取联系方式（脱敏）
-        phones = re.findall(r'1[3-9]\d{9}', text)
-        phones = [cls.mask_phone(p) for p in phones]
-
-        for name in names:
-            actors.append({
-                "name": name,
-                "role": None,  # 角色需要通过RoleDetector判断
-                "contact": phones[0] if phones else None,
-                "mentioned_in": evidence_type,
-            })
-
-        return actors
 
     @classmethod
     def mask_phone(cls, phone: str) -> str:

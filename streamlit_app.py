@@ -373,10 +373,7 @@ elif page == "🔍 智能证据解析":
                     # 主观明知评分
                     score_result = ScoreService.analyze_text(evidence_text)
                     crime_type = ScoreService.get_crime_type(score_result["matches"])
-
-                    # 关键主体提取
-                    matches = keyword_library.search(evidence_text)
-                    hit_keywords = [m["word"] for m in matches]
+                    hit_keywords = score_result["hit_words"]
 
                     # 推断角色
                     role = RoleDetector.detect_role_by_keywords(evidence_text)
@@ -426,16 +423,6 @@ elif page == "🔍 智能证据解析":
                 f"**命中关键词**: {', '.join(result.get('hit_keywords', [])) if result.get('hit_keywords') else '无'}"
             )
             st.markdown(f"**评分**: {result.get('score')}分 ({result.get('level')})")
-
-            st.markdown("---")
-
-            # 卡片3 - 关键主体提取
-            st.markdown("### 卡片3 - 关键主体提取")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.markdown(f"**角色**: {result.get('role', 'N/A')}")
-            with col_b:
-                st.markdown(f"**涉嫌罪名**: {result.get('crime_type', '待定')}")
 
             st.markdown("---")
 
