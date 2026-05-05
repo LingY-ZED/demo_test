@@ -263,6 +263,14 @@ class RoleDetector:
         # 获取涉嫌罪名
         crime_type = cls.ROLE_CRIME_TYPES.get(final_role, "待定")
 
+        # 一致性判断：关键词角色内部一致 且 行为角色与关键词角色不冲突
+        keyword_consistent = len(set(keyword_roles)) <= 1 if keyword_roles else True
+        if keyword_consistent and behavior_role != cls.ROLE_UNKNOWN and keyword_roles:
+            # 行为角色与关键词角色存在冲突（如行为=销售者但关键词=生产者）
+            keyword_set = set(keyword_roles)
+            if behavior_role not in keyword_set and len(keyword_set) == 1:
+                keyword_consistent = False
+
         return {
             "person_name": person_name,
             "role": final_role,
@@ -272,7 +280,7 @@ class RoleDetector:
             "behavior_reason": behavior_result.get("reason"),
             "behavior_confidence": behavior_result.get("confidence", 0.0),
             "keyword_confidence": keyword_confidence,
-            "is_consistent": len(set(keyword_roles)) <= 1 if keyword_roles else True,
+            "is_consistent": keyword_consistent,
         }
 
     @classmethod

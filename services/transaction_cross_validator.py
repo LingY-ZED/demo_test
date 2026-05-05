@@ -412,6 +412,12 @@ class TransactionCrossValidator:
         )
 
         return {
-            **anomaly,
-            "clue_id": clue.id,
+            "id": clue.id,
+            "case_id": clue.case_id,
+            "clue_type": clue.clue_type,
+            "evidence_text": clue.evidence_text,
+            "hit_keywords": clue.hit_keywords.split(",") if clue.hit_keywords else [],
+            "score": clue.score,
+            "crime_type": clue.crime_type,
+            "severity_level": clue.severity_level,
         }

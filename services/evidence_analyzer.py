@@ -28,13 +28,14 @@ class EvidenceAnalyzer:
         if len(lines) < 2:
             return text
         first_line = lines[0].lower()
-        if not any(col in first_line for col in ("content", "聊天内容", "mediatype")):
+        # 聊天内容的列名变体（不包含 "mediatype"，它是消息类型代码而非内容）
+        if not any(col in first_line for col in ("聊天内容", "内容", "content", "message")):
             return text
         # 找到内容列的索引
         headers = [h.strip() for h in lines[0].split(",")]
         content_idx = None
         for idx, h in enumerate(headers):
-            if h in ("content", "聊天内容"):
+            if h in ("聊天内容", "内容", "content", "message"):
                 content_idx = idx
                 break
         if content_idx is None:
@@ -76,13 +77,19 @@ class EvidenceAnalyzer:
             "key_actors": [],
         }
 
-        # 价格异常判定（使用原始文本，保留价格数字）
-        price_result = cls.analyze_price_anomaly(evidence_text)
+        # 先做主观明知分析，获取关键词命中情况
+        score_result = ScoreService.analyze_text(analysis_text)
+        has_keywords = len(score_result.get("matches", [])) > 0
+
+        # 价格异常判定（传入关键词上下文，避免无涉假背景时误判）
+        price_result = cls.analyze_price_anomaly(
+            evidence_text,
+            has_counterfeit_keywords=has_keywords
+        )
         if price_result["has_anomaly"]:
             result["price_anomaly"] = price_result
 
-        # 主观明知分析（使用清洗后的文本）
-        score_result = ScoreService.analyze_text(analysis_text)
+        # 主观明知分析结果
         if score_result["score"] > 0:
             result["subjective_knowledge"] = {
                 "score": score_result["score"],
@@ -98,14 +105,16 @@ class EvidenceAnalyzer:
     def analyze_price_anomaly(
         cls,
         text: str,
-        reference_price: Optional[float] = None
+        reference_price: Optional[float] = None,
+        has_counterfeit_keywords: bool = False
     ) -> Dict[str, Any]:
         """
         分析价格异常
 
         Args:
             text: 文本内容
-            reference_price: 参考价（如果为None，使用行业默认折扣）
+            reference_price: 参考价（如果为None，仅在有关键词上下文时使用启发式估算）
+            has_counterfeit_keywords: 文本中是否已命中涉假敏感词
 
         Returns:
             价格异常分析结果
@@ -118,14 +127,25 @@ class EvidenceAnalyzer:
 
         actual_price = prices[0]  # 取第一个提取到的价格
 
-        # 如果没有提供参考价，使用正品价格估算（假设正品价格是当前价格的2-3倍）
-        if reference_price is None:
+        if reference_price is not None:
+            # 有明确参考价：使用参考价判断
+            ratio = actual_price / reference_price if reference_price > 0 else 1
+            is_anomaly = ratio < 0.5
+        elif has_counterfeit_keywords:
+            # 无参考价但有关键词上下文：使用启发式估算（正品约为售价 2.5 倍）
             reference_price = actual_price * 2.5
-
-        ratio = actual_price / reference_price if reference_price > 0 else 1
-
-        # 价格低于正品50%以上为异常
-        is_anomaly = ratio < 0.5
+            ratio = actual_price / reference_price  # ≈ 0.4
+            is_anomaly = ratio < 0.5
+        else:
+            # 既无参考价也无涉假上下文：不足以判断价格异常
+            return {
+                "has_anomaly": False,
+                "quoted_price": actual_price,
+                "reference_price": None,
+                "ratio": None,
+                "anomaly_level": None,
+                "note": "缺少参考价格或涉假关键词上下文，无法判定价格异常",
+            }
 
         return {
             "has_anomaly": is_anomaly,
@@ -134,6 +154,13 @@ class EvidenceAnalyzer:
             "ratio": ratio,
             "anomaly_level": "严重" if ratio < 0.3 else ("中等" if ratio < 0.5 else "轻微"),
         }
+
+    # 年份范围（排除被误提取为价格的年份数字）
+    _YEAR_MIN = 1900
+    _YEAR_MAX = 2100
+    # 合理价格范围（元）
+    _PRICE_MIN = 10
+    _PRICE_MAX = 100_000_000
 
     @classmethod
     def extract_prices(cls, text: str) -> List[float]:
@@ -147,17 +174,18 @@ class EvidenceAnalyzer:
         seen = set()
 
         # 每条规则必须包含显式的货币单位或上下文，避免误匹配
+        # 使用 [^\\S\\n] 代替 \\s 防止跨行匹配（如 "2021\\n元" 误提取年份）
         patterns = [
             # ¥ 前缀
-            r'¥\s*(\d+(?:\.\d{1,2})?)',
+            r'¥[^\S\n]*(\d+(?:\.\d{1,2})?)',
             # 转账/打款/付款/汇款 + 金额
-            r'(?:转账|打款|付款|汇款)\s*(\d+(?:\.\d{1,2})?)',
+            r'(?:转账|打款|付款|汇款)[^\S\n]*(\d+(?:\.\d{1,2})?)',
             # 价格是/为/： + 金额
-            r'价格[是为：:]\s*(\d+(?:\.\d{1,2})?)',
+            r'价格[是为：:][^\S\n]*(\d+(?:\.\d{1,2})?)',
             # 金额 + 万/千/百 单位
-            r'(\d+(?:\.\d{1,2})?)\s*[万千百]',
+            r'(\d+(?:\.\d{1,2})?)[^\S\n]*[万千百]',
             # 金额 + 元/块 货币后缀
-            r'(\d+(?:\.\d{1,2})?)\s*[元块]',
+            r'(\d+(?:\.\d{1,2})?)[^\S\n]*[元块]',
         ]
 
         for pattern in patterns:
@@ -165,6 +193,17 @@ class EvidenceAnalyzer:
                 try:
                     price = float(m.group(1))
                 except (ValueError, IndexError):
+                    continue
+
+                # 过滤年份数字（如 2021年 被错误提取）
+                if cls._YEAR_MIN <= price <= cls._YEAR_MAX:
+                    ctx_end = min(m.end() + 1, len(text))
+                    after = text[m.end():ctx_end]
+                    if after and after[0] in '年月日/-':
+                        continue
+
+                # 过滤不合理价格范围
+                if price < cls._PRICE_MIN or price > cls._PRICE_MAX:
                     continue
 
                 # 检测单位：万→×10000, 千→×1000

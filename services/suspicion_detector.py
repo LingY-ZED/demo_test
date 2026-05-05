@@ -9,6 +9,7 @@ from models.database import Case, SuspiciousClue, Communication
 from services.score_service import ScoreService
 from services.role_detector import RoleDetector
 from services.evidence_analyzer import EvidenceAnalyzer
+from services.transaction_cross_validator import TransactionCrossValidator
 from utils.keywords import keyword_library
 
 
@@ -82,8 +83,11 @@ class SuspicionDetector:
             )
             clues.append(clue)
 
-            # 从通讯内容中检测价格异常（与证据解析保持一致）
-            price_result = EvidenceAnalyzer.analyze_price_anomaly(content)
+            # 从通讯内容中检测价格异常（与证据解析保持一致，已知有关键词上下文）
+            price_result = EvidenceAnalyzer.analyze_price_anomaly(
+                content,
+                has_counterfeit_keywords=True
+            )
             if price_result["has_anomaly"]:
                 price_clue = cls.create_suspicious_clue(
                     case_id=case_id,
@@ -295,11 +299,14 @@ class SuspicionDetector:
         comm_price = [c for c in all_comm_clues if c.get("clue_type") == "价格异常"]
         txn_price_clues = cls.detect_price_anomaly(case_id, transactions)
         role_clues = cls.detect_role_anomaly(case_id, transactions, logistics, communications)
+        # 交易×通讯交叉比对（无沟通大额交易、金额不符、聊天提及无对应交易）
+        cross_anomalies = TransactionCrossValidator.validate(case_id)
 
         return {
             "suspicion_clues": comm_suspicion,
             "price_clues": comm_price + txn_price_clues,
             "role_clues": role_clues,
+            "cross_anomalies": cross_anomalies,
         }
 
     @classmethod
